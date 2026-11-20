@@ -13,8 +13,8 @@ A trainer-led live quiz for Emergency First Aid at Work courses.
 |---|---|
 | `index.html` | Candidate page (phones) |
 | `trainer.html` | Trainer page: live session + Results admin panel |
-| `js/config.js` | **You paste your Firebase settings here** |
-| `js/questions.js` | The question bank (edit here to change questions) |
+| `config.js` | **You paste your Firebase settings here** |
+| `questions.js` | The question bank (edit here to change questions) |
 | `firestore.rules` | Database security rules (pasted into Firebase) |
 
 ---
@@ -52,11 +52,11 @@ You need a free **Firebase** project (Google) to store results, and somewhere to
 
 ### 5. Connect the app to Firebase
 1. In Firebase: ⚙️ **Project settings › General › Your apps › Web (</>)**. Register an app called `EFAW Live Quiz`. You don't need Firebase Hosting.
-2. Copy the `firebaseConfig` values into `js/config.js`, replacing the `PASTE_…` placeholders.
+2. Copy the `firebaseConfig` values into `config.js`, replacing the `PASTE_…` placeholders.
 
 ### 6. Put it online with GitHub Pages
 1. In GitHub, create a new repository, e.g. `efaw-live-quiz`. It can be public: the security rules protect the data, not the code.
-2. Upload every file and folder from this package, keeping the `js` and `css` folders.
+2. Upload all the files from this package (they all sit together in one folder).
 3. Go to **Settings › Pages**, set Source to **Deploy from a branch**, choose branch `main` and folder `/ (root)`, then **Save**.
 4. After a minute your app is at:
    - Trainer: `https://<your-github-name>.github.io/efaw-live-quiz/trainer.html`
@@ -86,4 +86,4 @@ You need a free **Firebase** project (Google) to store results, and somewhere to
 - **Data held:** candidate names, their answers and timestamps, in your Firebase project in London. Delete old sessions from the Results tab (this is permanent, so export first). Add the quiz to your privacy notice for learners.
 - **Not an assessment:** this is a practice and knowledge-check tool. The PDFs say so.
 - **Answers are visible in the page code.** A determined person could find them in the page source. That's fine for a practice quiz, but don't use it as a formal assessment.
-- **Changing questions:** edit `js/questions.js`. Each entry is `[id, topic, question, [correct, wrong, wrong, wrong], explanation]`, with the correct answer always first. The app shuffles the order. Keep ids unique.
+- **Changing questions:** edit `questions.js`. Each entry is `[id, topic, question, [correct, wrong, wrong, wrong], explanation]`, with the correct answer always first. The app shuffles the order. Keep ids unique.

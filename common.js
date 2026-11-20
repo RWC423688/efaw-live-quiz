@@ -144,7 +144,7 @@ export function joinUrl(code){
 }
 
 export function setupNotice(){
-  return `<div class="card"><h2>Setup needed</h2><p class="lead">This app isn't connected to its database yet. Paste your Firebase settings into <b>js/config.js</b> (see the setup guide in README.md).</p></div>`;
+  return `<div class="card"><h2>Setup needed</h2><p class="lead">This app isn't connected to its database yet. Paste your Firebase settings into <b>config.js</b> (see the setup guide in README.md).</p></div>`;
 }
 
 export { TOPICS, BANK, byId };

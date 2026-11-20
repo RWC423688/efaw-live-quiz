@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EFAW Live Quiz – Trainer</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -25,9 +25,9 @@
 
 <script type="module">
 import { configured, auth, db, signInWithEmailAndPassword, onAuthStateChanged, signOut,
-         doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot } from "./js/fb.js";
+         doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot } from "./fb.js";
 import { $, esc, toast, confirmBox, shuffle, LETTERS, TOPICS, BANK, byId, scoreAnswers, buildRecordPdf,
-         pdfFileName, downloadBlob, qrSvg, joinUrl, setupNotice, fmtDate, isoDate, safeName } from "./js/common.js";
+         pdfFileName, downloadBlob, qrSvg, joinUrl, setupNotice, fmtDate, isoDate, safeName } from "./common.js";
 
 const app = $("#app");
 const ACTIVE = "efaw.live.active";

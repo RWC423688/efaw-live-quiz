@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EFAW Live Quiz – Join</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
@@ -16,8 +16,8 @@
 <main id="app"><div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></main>
 
 <script type="module">
-import { configured, auth, db, signInAnonymously, onAuthStateChanged, doc, collection, getDoc, setDoc, onSnapshot, query, where } from "./js/fb.js";
-import { $, esc, toast, LETTERS, byId, TOPICS, scoreAnswers, buildRecordPdf, pdfFileName, downloadBlob, setupNotice, fmtDate } from "./js/common.js";
+import { configured, auth, db, signInAnonymously, onAuthStateChanged, doc, collection, getDoc, setDoc, onSnapshot, query, where } from "./fb.js";
+import { $, esc, toast, LETTERS, byId, TOPICS, scoreAnswers, buildRecordPdf, pdfFileName, downloadBlob, setupNotice, fmtDate } from "./common.js";
 
 const app = $("#app");
 const KEY = "efaw.live.join";
