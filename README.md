@@ -82,6 +82,13 @@ You need a free **Firebase** project (Google) to store results, and somewhere to
 - **Show join code** brings the QR code back full screen for latecomers.
 - If you reload the trainer page mid-session, it returns to the live session.
 
+## Certificates (80% pass mark)
+- A candidate **passes** with 80% or more on the main questions (the 15, 30 or 45). Catch-up questions aren't counted.
+- When the trainer ends the session, each candidate sees **Quiz completed**, then taps **Finish and see my results**. This opens their results page: score, pass or not, score by topic, and every question with their answer, the correct answer and the explanation (filter by All / Incorrect / Correct). Passers can download a **Certificate of Achievement** (A4 landscape PDF) with their name, score, date, session and a certificate number.
+- In **Results**, each candidate shows Pass / Not passed. Passers have a **Certificate** link. **Download all PDFs** gives a zip with a *Results* folder and a *Certificates* folder. The CSV includes the result and certificate number.
+- The certificate says it records a practice knowledge quiz and is **not** a regulated qualification or first aid certificate.
+- To change the pass mark, edit `PASS_MARK` near the top of `common.js`.
+
 ## Good to know
 - **Data held:** candidate names, their answers and timestamps, in your Firebase project in London. Delete old sessions from the Results tab (this is permanent, so export first). Add the quiz to your privacy notice for learners.
 - **Not an assessment:** this is a practice and knowledge-check tool. The PDFs say so.

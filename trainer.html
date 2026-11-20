@@ -26,7 +26,7 @@
 <script type="module">
 import { configured, auth, db, signInWithEmailAndPassword, onAuthStateChanged, signOut,
          doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot } from "./fb.js";
-import { $, esc, toast, confirmBox, shuffle, LETTERS, TOPICS, BANK, byId, scoreAnswers, buildRecordPdf,
+import { $, esc, toast, confirmBox, shuffle, LETTERS, TOPICS, BANK, byId, scoreAnswers, buildRecordPdf, buildCertificatePdf, certFileName, certNumber, PASS_MARK,
          pdfFileName, downloadBlob, qrSvg, joinUrl, setupNotice, fmtDate, isoDate, safeName } from "./common.js";
 
 const app = $("#app");
@@ -345,22 +345,26 @@ async function openResult(c){
     <div class="row" style="justify-content:space-between"><div><button class="link" id="back" type="button">← All sessions</button>
       <h2 style="margin-top:6px">${esc(s.title)}</h2><div class="mut">${esc(fmtDate(s.createdAt))} · code ${esc(s.code)} · ${rows.length} candidates · ${(s.asked || []).length}${s.total ? ` of ${s.total}` : ""} questions asked · ${s.status === "ended" ? "Ended" : "Still live"}</div></div>
       <div class="row"><button class="btn ghost" id="csv" type="button">Export CSV</button><button class="btn" id="zip" type="button" ${rows.length ? "" : "disabled"}>Download all PDFs</button></div></div>
-    <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Score</th><th class="num">Main</th><th class="num">Catch-up</th><th></th></tr></thead><tbody>
+    <div class="row" style="margin-top:12px;gap:8px"><span class="result pass" style="margin:0">${rows.filter(r => r.sc.passed).length} passed</span><span class="result fail" style="margin:0">${rows.filter(r => !r.sc.passed).length} not passed</span><span class="mut" style="font-size:13px">Pass mark ${PASS_MARK}% of the main questions (catch-ups not counted).</span></div>
+    <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Score</th><th>Result</th><th class="num">Catch-up</th><th></th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr><td><b>${esc(r.name)}</b></td>
-      <td class="num">${r.sc.c}/${r.sc.n} (${r.sc.pct}%)<span class="mini"><div style="width:${r.sc.pct}%;background:${col(r.sc.pct)}"></div></span></td>
-      <td class="num">${r.sc.main.c}/${r.sc.main.n}</td><td class="num">${r.sc.catchup.n ? `${r.sc.catchup.c}/${r.sc.catchup.n}` : "–"}</td>
-      <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">PDF</button></td></tr>
+      <td class="num">${r.sc.main.c}/${r.sc.main.n} (${r.sc.main.pct}%)<span class="mini"><div style="width:${r.sc.main.pct}%;background:${col(r.sc.main.pct)}"></div></span></td>
+      <td>${r.sc.main.n ? (r.sc.passed ? `<span class="result pass" style="margin:0;font-size:13px">Pass</span>` : `<span class="result fail" style="margin:0;font-size:13px">Not passed</span>`) : `<span class="mut">–</span>`}</td>
+      <td class="num">${r.sc.catchup.n ? `${r.sc.catchup.c}/${r.sc.catchup.n}` : "–"}</td>
+      <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">Results PDF</button>${r.sc.passed ? ` · <button class="link" data-c="${i}" type="button">Certificate</button>` : ""}</td></tr>
       <tr id="det${i}" style="display:none"><td colspan="5">${detail(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="mut">No candidates joined.</td></tr>`}
     </tbody></table>
     <div class="actions"><button class="btn danger" id="del" type="button">Delete session</button></div></div>`;
   $("#back").onclick = renderResults;
   app.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { const d = $("#det" + b.dataset.v); d.style.display = d.style.display ? "" : "none"; });
   app.querySelectorAll("[data-p]").forEach(b => b.onclick = () => { const r = rows[+b.dataset.p]; downloadBlob(pdfFor(r), pdfFileName(r.name, when)); });
+  app.querySelectorAll("[data-c]").forEach(b => b.onclick = () => { const r = rows[+b.dataset.c]; downloadBlob(certFor(r), certFileName(r.name, when)); });
   $("#csv").onclick = () => downloadBlob(new Blob(["﻿" + csvFor(s, rows)], { type: "text/csv" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.csv`);
   $("#zip").onclick = async () => {
     if (!window.JSZip){ toast("Zip library didn't load. Use the PDF links instead."); return; }
     const z = new window.JSZip();
-    rows.forEach(r => z.file(pdfFileName(r.name, when), pdfFor(r)));
+    rows.forEach(r => z.file("Results/" + pdfFileName(r.name, when), pdfFor(r)));
+    rows.filter(r => r.sc.passed).forEach(r => z.file("Certificates/" + certFileName(r.name, when), certFor(r)));
     downloadBlob(await z.generateAsync({ type: "blob" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.zip`);
   };
   $("#del").onclick = async () => {
@@ -377,6 +381,8 @@ async function openResult(c){
     } catch(e){ console.error(e); toast("Couldn't delete everything. Try again."); }
   };
   function pdfFor(r){ return buildRecordPdf({ name: r.name, sessionTitle: s.title, completedAt: when, answers: r.list }); }
+  function certFor(r){ return buildCertificatePdf({ name: r.name, sessionTitle: s.title, completedAt: when, scorePct: r.sc.main.pct,
+    correct: r.sc.main.c, total: r.sc.main.n, certNo: certNumber(s.code, r.uid) }); }
 }
 
 function detail(r){
@@ -389,8 +395,9 @@ function detail(r){
 function csvFor(s, rows){
   const tk = Object.keys(TOPICS);
   const cell = v => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-  const head = ["Candidate", "Session", "Date", "Answered", "Correct", "Score %", "Main correct", "Main answered", "Catch-up correct", "Catch-up answered", ...tk.map(t => TOPICS[t])];
-  const lines = rows.map(r => [r.name, s.title, isoDate(s.endedAt || s.createdAt), r.sc.n, r.sc.c, r.sc.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
+  const head = ["Candidate", "Session", "Date", "Result", "Score %", "Main correct", "Main answered", "Catch-up correct", "Catch-up answered", "Certificate no.", ...tk.map(t => TOPICS[t])];
+  const lines = rows.map(r => [r.name, s.title, isoDate(s.endedAt || s.createdAt), r.sc.main.n ? (r.sc.passed ? "Pass" : "Not passed") : "", r.sc.main.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
+    r.sc.passed ? certNumber(s.code, r.uid) : "",
     ...tk.map(t => r.sc.byT[t] ? `${r.sc.byT[t].c}/${r.sc.byT[t].n}` : "")]);
   return [head, ...lines].map(l => l.map(cell).join(",")).join("\r\n");
 }

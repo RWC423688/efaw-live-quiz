@@ -6,6 +6,8 @@ export const $ = s => document.querySelector(s);
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 export const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 export const LETTERS = "ABCD";
+// Pass mark for the certificate, as a percentage of the MAIN questions (catch-ups excluded).
+export const PASS_MARK = 80;
 
 export function toast(msg){
   let t = document.getElementById("toast");
@@ -44,13 +46,15 @@ export function scoreAnswers(list){
   return {
     answers, byT, n: answers.length, c,
     pct: answers.length ? Math.round(c / answers.length * 100) : 0,
-    main: { n: main.length, c: main.filter(a => a.choice === 0).length },
+    main: { n: main.length, c: main.filter(a => a.choice === 0).length,
+            pct: main.length ? Math.round(main.filter(a => a.choice === 0).length / main.length * 100) : 0 },
+    passed: main.length > 0 && main.filter(a => a.choice === 0).length / main.length * 100 >= PASS_MARK,
     catchup: { n: catchup.length, c: catchup.filter(a => a.choice === 0).length },
     missed: answers.filter(a => a.choice !== 0)
   };
 }
 
-export const safeName = n => (String(n || "Candidate").replace(/[\u2013\u2014]/g, "-").replace(/[^\p{L}\p{N} .,()'&-]+/gu, "").replace(/\s+/g, " ").trim() || "Candidate");
+export const safeName = n => (String(n || "Candidate").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\u2018\u2019]/g, "'").replace(/[\u2013\u2014]/g, "-").replace(/[^\p{L}\p{N} .,()'&-]+/gu, "").replace(/\s+/g, " ").trim() || "Candidate");
 export const pdfFileName = (name, ms) => `EFAW Quiz - ${safeName(name)} - ${isoDate(ms)}.pdf`;
 
 // A4 completion record (needs jsPDF loaded as window.jspdf)
@@ -80,7 +84,8 @@ export function buildRecordPdf({ name, sessionTitle, completedAt, answers }){
     ["Completed", fmtDate(completedAt)],
     ["Status", "Completed"],
     ["Score", `${r.c} of ${r.n} correct (${r.pct}%)`],
-    ["Main questions", `${r.main.c} of ${r.main.n} correct`],
+    ["Main questions", `${r.main.c} of ${r.main.n} correct (${r.main.pct}%)`],
+    ["Result", r.passed ? `Pass (pass mark ${PASS_MARK}%)` : `Not passed (pass mark ${PASS_MARK}%)`],
     ["Catch-up questions", r.catchup.n ? `${r.catchup.c} of ${r.catchup.n} correct` : "None"]
   ];
   rows.forEach(([k, v]) => {
@@ -123,6 +128,52 @@ export function buildRecordPdf({ name, sessionTitle, completedAt, answers }){
     doc.text("Practice quiz only. Not a qualification or assessment result.", M, 290);
     doc.text(`Page ${p} of ${pages}`, W - M, 290, { align:"right" });
   }
+  return doc.output("blob");
+}
+
+export const certFileName = (name, ms) => `EFAW Certificate - ${safeName(name)} - ${isoDate(ms)}.pdf`;
+export const certNumber = (code, uid) => `${String(code || "").toUpperCase()}-${String(uid || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}`;
+
+// A4 landscape certificate of achievement (needs jsPDF loaded as window.jspdf)
+export function buildCertificatePdf({ name, sessionTitle, completedAt, scorePct, correct, total, certNo }){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  const W = 297, H = 210, cx = W / 2;
+  const green = [11,122,75], dark = [18,51,42], ink = [27,36,48], mut = [93,107,122], gold = [176,141,62];
+  doc.setFillColor(251,252,250); doc.rect(0, 0, W, H, "F");
+  doc.setDrawColor(...green); doc.setLineWidth(2.2); doc.rect(9, 9, W - 18, H - 18);
+  doc.setDrawColor(...gold); doc.setLineWidth(0.6); doc.rect(13, 13, W - 26, H - 26);
+  // first aid cross
+  doc.setFillColor(...green);
+  doc.rect(cx - 3.5, 22, 7, 19, "F"); doc.rect(cx - 9.5, 28, 19, 7, "F");
+  doc.setTextColor(...green); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+  doc.text(ORG_NAME.toUpperCase(), cx, 51, { align: "center", charSpace: 1.5 });
+  doc.setTextColor(...dark); doc.setFont("times", "bold"); doc.setFontSize(34);
+  doc.text("Certificate of Achievement", cx, 68, { align: "center" });
+  doc.setTextColor(...mut); doc.setFont("helvetica", "normal"); doc.setFontSize(12.5);
+  doc.text("This is to certify that", cx, 82, { align: "center" });
+  doc.setTextColor(...ink); doc.setFont("times", "bolditalic"); doc.setFontSize(32);
+  doc.text(String(name), cx, 99, { align: "center", maxWidth: W - 60 });
+  doc.setDrawColor(...gold); doc.setLineWidth(0.4); doc.line(cx - 75, 104, cx + 75, 104);
+  doc.setTextColor(...ink); doc.setFont("helvetica", "normal"); doc.setFontSize(13);
+  doc.text("has successfully completed the", cx, 116, { align: "center" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(...green);
+  doc.text("Emergency First Aid at Work (EFAW) Knowledge Quiz", cx, 125, { align: "center" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(12.5); doc.setTextColor(...ink);
+  doc.text(`achieving a score of ${scorePct}% (${correct} of ${total} correct). Pass mark: ${PASS_MARK}%.`, cx, 135, { align: "center" });
+  // footer: date, signature, cert no
+  const y = 165;
+  doc.setDrawColor(...mut); doc.setLineWidth(0.3);
+  doc.line(40, y, 105, y); doc.line(192, y, 257, y);
+  doc.setFontSize(12); doc.setTextColor(...ink);
+  doc.text(fmtDate(completedAt).split(" at ")[0], 72.5, y - 3, { align: "center" });
+  doc.setFontSize(9.5); doc.setTextColor(...mut);
+  doc.text("Date", 72.5, y + 5, { align: "center" });
+  doc.text("Trainer signature", 224.5, y + 5, { align: "center" });
+  doc.text(`Certificate no. ${certNo}`, cx, y + 5, { align: "center" });
+  if (sessionTitle) doc.text(String(sessionTitle), cx, y - 3, { align: "center", maxWidth: 80 });
+  doc.setFontSize(8.5);
+  doc.text("This certificate records successful completion of a practice knowledge quiz. It is not a regulated qualification or a first aid certificate.", cx, 186, { align: "center", maxWidth: W - 50 });
   return doc.output("blob");
 }
 
