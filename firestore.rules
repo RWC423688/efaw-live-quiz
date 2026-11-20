@@ -1,0 +1,63 @@
+rules_version = '2';
+// Security rules for the EFAW Live Quiz.
+// Paste into Firebase console > Firestore Database > Rules, then Publish.
+//
+// - Trainers: accounts listed in the "trainers" collection (added by hand in the console).
+// - Candidates: anonymous sign-in. They can join a session, answer the CURRENT question once,
+//   answer their own catch-up questions, and read only their own answers.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isTrainer() {
+      return signedIn() && exists(/databases/$(database)/documents/trainers/$(request.auth.uid));
+    }
+
+    match /trainers/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    match /sessions/{code} {
+      function sess() { return get(/databases/$(database)/documents/sessions/$(code)).data; }
+
+      allow get: if signedIn();
+      allow list, create, update, delete: if isTrainer();
+
+      match /players/{uid} {
+        allow get: if isTrainer() || (signedIn() && request.auth.uid == uid);
+        allow list, delete: if isTrainer();
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'lastSeen'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
+          && sess().status != 'ended';
+      }
+
+      match /answers/{aid} {
+        allow read: if isTrainer() || (signedIn() && resource.data.uid == request.auth.uid);
+        allow delete: if isTrainer();
+        allow update: if false;
+        allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid
+          && aid == request.auth.uid + '_' + request.resource.data.qid
+          && request.resource.data.keys().hasOnly(['uid', 'qid', 'choice', 'at', 'retest'])
+          && request.resource.data.choice is int
+          && request.resource.data.choice >= 0 && request.resource.data.choice <= 3
+          && exists(/databases/$(database)/documents/sessions/$(code)/players/$(request.auth.uid))
+          && (
+            (sess().status == 'question' && request.resource.data.retest == false
+              && sess().q.qid == request.resource.data.qid)
+            ||
+            (sess().status == 'retest' && request.resource.data.retest == true
+              && request.resource.data.qid in get(/databases/$(database)/documents/sessions/$(code)/retests/$(request.auth.uid)).data.qids)
+          );
+      }
+
+      match /retests/{uid} {
+        allow get: if isTrainer() || (signedIn() && request.auth.uid == uid);
+        allow list, write: if isTrainer();
+      }
+    }
+  }
+}

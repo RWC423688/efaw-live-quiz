@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EFAW Live Quiz – Join</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="cross"><svg viewBox="0 0 24 24"><path fill="#0b7a4b" d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></svg></div>
+  <div><h1>EFAW Live Quiz</h1><div class="sub">Emergency First Aid at Work · DM Learning</div></div>
+</header>
+<main id="app"><div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></main>
+
+<script type="module">
+import { configured, auth, db, signInAnonymously, onAuthStateChanged, doc, collection, getDoc, setDoc, onSnapshot, query, where } from "./js/fb.js";
+import { $, esc, toast, LETTERS, byId, TOPICS, scoreAnswers, buildRecordPdf, pdfFileName, downloadBlob, setupNotice, fmtDate } from "./js/common.js";
+
+const app = $("#app");
+const KEY = "efaw.live.join";
+let me = null, code = null, name = null, sess = null, retest = null;
+let myAnswers = {};          // qid -> answer doc
+let pending = new Set();     // qids being submitted
+let feedbackQid = null;      // catch-up question whose result is on screen
+let unsubs = [];
+
+const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e){ return null; } })();
+const params = new URLSearchParams(location.search);
+
+if (!configured){ app.innerHTML = setupNotice(); }
+else {
+  onAuthStateChanged(auth, user => {
+    if (code) return; // already in a session
+    me = user ? user.uid : null;
+    const urlCode = (params.get("s") || "").toUpperCase();
+    if (user && saved && saved.code && (!urlCode || urlCode === saved.code)) resume(saved.code, saved.name);
+    else renderJoin(urlCode, saved && saved.name);
+  });
+}
+
+function renderJoin(prefCode = "", prefName = "", error = ""){
+  app.innerHTML = `
+  <div class="card">
+    <h2>Join the session</h2>
+    <p class="lead">Enter the code on the trainer's screen and your full name.</p>
+    <form id="jf" autocomplete="off">
+      <label class="f" for="jc">Session code</label>
+      <input class="code" type="text" id="jc" maxlength="6" value="${esc(prefCode)}" inputmode="text" autocapitalize="characters">
+      <label class="f" for="jn">Your full name</label>
+      <input type="text" id="jn" maxlength="60" value="${esc(prefName || "")}" placeholder="e.g. Sam Smith" autocapitalize="words">
+      <div class="err" id="je">${esc(error)}</div>
+      <button class="btn big full" id="jb" type="submit" style="margin-top:10px">Join</button>
+    </form>
+  </div>`;
+  $("#jf").onsubmit = async e => {
+    e.preventDefault();
+    const c = $("#jc").value.trim().toUpperCase(), n = $("#jn").value.trim().replace(/\s+/g, " ");
+    if (c.length < 4){ $("#je").textContent = "Enter the session code."; return; }
+    if (n.length < 2){ $("#je").textContent = "Enter your full name."; return; }
+    $("#jb").disabled = true; $("#je").textContent = "";
+    try { await join(c, n); }
+    catch(err){ console.error(err); $("#je").textContent = err.userMsg || "Couldn't join. Check your connection and try again."; $("#jb").disabled = false; }
+  };
+}
+
+async function join(c, n){
+  if (!auth.currentUser) await signInAnonymously(auth);
+  me = auth.currentUser.uid;
+  const s = await getDoc(doc(db, "sessions", c));
+  if (!s.exists()) throw Object.assign(new Error("nf"), { userMsg: "No session with that code. Check it and try again." });
+  if (s.data().status === "ended") throw Object.assign(new Error("ended"), { userMsg: "That session has finished." });
+  await setDoc(doc(db, "sessions", c, "players", me), { name: n, joinedAt: Date.now(), lastSeen: Date.now() });
+  try { localStorage.setItem(KEY, JSON.stringify({ code: c, name: n })); } catch(e){}
+  start(c, n);
+}
+
+async function resume(c, n){
+  try {
+    const s = await getDoc(doc(db, "sessions", c));
+    if (!s.exists()){ forget(); renderJoin(); return; }
+    if (s.data().status !== "ended"){
+      await setDoc(doc(db, "sessions", c, "players", me), { name: n, joinedAt: Date.now(), lastSeen: Date.now() });
+    }
+    start(c, n);
+  } catch(e){ console.error(e); renderJoin(c, n, "Couldn't reconnect. Try joining again."); }
+}
+
+function forget(){ try { localStorage.removeItem(KEY); } catch(e){} }
+
+function start(c, n){
+  code = c; name = n;
+  unsubs.forEach(u => u()); unsubs = [];
+  unsubs.push(onSnapshot(doc(db, "sessions", code), snap => { sess = snap.exists() ? snap.data() : null; render(); }, err => console.error(err)));
+  unsubs.push(onSnapshot(query(collection(db, "sessions", code, "answers"), where("uid", "==", me)), qs => {
+    myAnswers = {}; qs.forEach(d => { const a = d.data(); myAnswers[a.qid] = a; pending.delete(a.qid); });
+    render();
+  }, err => console.error(err)));
+  unsubs.push(onSnapshot(doc(db, "sessions", code, "retests", me), snap => { retest = snap.exists() ? snap.data() : null; render(); }, err => console.error(err)));
+}
+
+async function answer(qid, choice, isRetest){
+  if (myAnswers[qid] || pending.has(qid)) return;
+  pending.add(qid);
+  if (isRetest) feedbackQid = qid;
+  render();
+  try {
+    await setDoc(doc(db, "sessions", code, "answers", me + "_" + qid), { uid: me, qid, choice, at: Date.now(), retest: isRetest });
+  } catch(e){
+    console.error(e); pending.delete(qid); if (isRetest) feedbackQid = null;
+    toast("That answer didn't send. The question may have closed."); render();
+  }
+}
+
+function head(){
+  return `<div class="row" style="justify-content:space-between;margin-bottom:12px"><span class="mut" style="font-size:14px">${esc(name)} · <b>${esc(code)}</b></span><button class="link" id="leave" type="button">Leave</button></div>`;
+}
+function wire(){
+  const l = $("#leave");
+  if (l) l.onclick = () => { unsubs.forEach(u => u()); unsubs = []; forget(); code = null; sess = null; myAnswers = {}; retest = null; renderJoin(); };
+}
+
+function waitCard(title, sub){
+  return `<div class="card wait"><h2>${esc(title)}</h2><p class="lead">${esc(sub)}</p><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
+}
+
+function questionCard(qid, order, opts){
+  const q = byId[qid];
+  const mine = myAnswers[qid];
+  const sending = pending.has(qid);
+  const chosen = mine ? mine.choice : null;
+  const reveal = opts.reveal && (mine || opts.forceReveal);
+  return `
+  <div class="card">
+    <span class="chip ${opts.retest ? "re" : ""}">${opts.retest ? "Catch-up · " : ""}${esc(TOPICS[q[1]])}</span>
+    ${opts.label ? `<span class="mut" style="font-size:13px;margin-left:6px">${esc(opts.label)}</span>` : ""}
+    <div class="q">${esc(q[2])}</div>
+    <div class="opts">${order.map((orig, k) => {
+      let cls = "";
+      if (reveal){ if (orig === 0) cls = "right"; else if (orig === chosen) cls = "wrong"; }
+      else if (orig === chosen) cls = "sel";
+      return `<button class="opt ${cls}" type="button" data-o="${orig}" ${mine || sending || opts.closed ? "disabled" : ""}><span class="k">${LETTERS[k]}</span><span>${esc(q[3][orig])}</span></button>`;
+    }).join("")}</div>
+    ${opts.footer || ""}
+  </div>`;
+}
+
+function render(){
+  if (!code) return;
+  if (!sess){ app.innerHTML = head() + waitCard("Connecting…", "Hold on a moment."); wire(); return; }
+  const st = sess.status;
+  let html = head();
+
+  if (st === "ended"){ renderDone(); return; }
+
+  if (st === "lobby" || st === "wait" || ((st === "question" || st === "reveal") && !sess.q)){
+    html += st === "lobby"
+      ? waitCard(`You're in, ${name.split(" ")[0]}!`, "Waiting for the trainer to start. Keep this page open.")
+      : waitCard("Get ready", "The next question is coming up.");
+  }
+  else if (st === "question"){
+    const qid = sess.q.qid, mine = myAnswers[qid];
+    const footer = mine ? `<div class="fb info"><b>Answer locked in</b>Wait for the trainer to reveal the answer.</div>`
+                 : pending.has(qid) ? `<div class="fb info"><b>Sending…</b></div>` : "";
+    html += questionCard(qid, sess.q.order, { label: `Question ${sess.q.n}`, footer });
+  }
+  else if (st === "reveal"){
+    const qid = sess.q.qid, q = byId[qid], mine = myAnswers[qid];
+    let fb;
+    if (!mine) fb = `<div class="fb info"><b>You didn't answer this one</b>The answer is: ${esc(q[3][0])}. ${esc(q[4])}</div>`;
+    else if (mine.choice === 0) fb = `<div class="fb ok"><b>Correct!</b>${esc(q[4])}</div>`;
+    else fb = `<div class="fb no"><b>Not this time. The answer is: ${esc(q[3][0])}</b>${esc(q[4])}<div style="margin-top:6px;font-weight:600;color:var(--amber)">If your trainer runs a catch-up round, you'll get a different question on this topic.</div></div>`;
+    html += questionCard(qid, sess.q.order, { label: `Question ${sess.q.n}`, reveal: true, forceReveal: true, closed: true, footer: fb });
+  }
+  else if (st === "retest"){
+    const items = (retest && retest.items) || [];
+    if (feedbackQid && myAnswers[feedbackQid]){
+      const it = items.find(i => i.qid === feedbackQid);
+      const q = byId[feedbackQid], mine = myAnswers[feedbackQid];
+      const fb = (mine.choice === 0 ? `<div class="fb ok"><b>Correct!</b>${esc(q[4])}</div>` : `<div class="fb no"><b>The answer is: ${esc(q[3][0])}</b>${esc(q[4])}</div>`)
+        + `<div class="actions"><button class="btn" id="cont" type="button">Continue</button></div>`;
+      html += questionCard(feedbackQid, it ? it.order : [0,1,2,3], { retest: true, reveal: true, closed: true, footer: fb });
+    } else if (feedbackQid && pending.has(feedbackQid)){
+      const it = items.find(i => i.qid === feedbackQid);
+      html += questionCard(feedbackQid, it.order, { retest: true, footer: `<div class="fb info"><b>Sending…</b></div>` });
+    } else {
+      const todo = items.filter(i => !myAnswers[i.qid]);
+      if (todo.length){
+        html += questionCard(todo[0].qid, todo[0].order, { retest: true, label: `${todo.length} to go` });
+      } else if (items.some(i => i.round === sess.retestRound)){
+        html += waitCard("Catch-up done", "Nice work. Waiting for the trainer.");
+      } else {
+        html += waitCard("No catch-up questions for you", "You got them right. Waiting for the others.");
+      }
+    }
+  }
+  app.innerHTML = html;
+  wire();
+  app.querySelectorAll(".opt:not([disabled])").forEach(b => b.onclick = () => {
+    const orig = +b.dataset.o;
+    if (st === "question") answer(sess.q.qid, orig, false);
+    else if (st === "retest"){
+      const todo = ((retest && retest.items) || []).filter(i => !myAnswers[i.qid]);
+      if (todo[0]) answer(todo[0].qid, orig, true);
+    }
+  });
+  const c = $("#cont"); if (c) c.onclick = () => { feedbackQid = null; render(); };
+}
+
+function renderDone(){
+  const list = Object.values(myAnswers);
+  const r = scoreAnswers(list);
+  const when = sess.endedAt || Date.now();
+  app.innerHTML = `
+  <div class="card done">
+    <div class="tick"><svg viewBox="0 0 24 24"><path fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h2>Quiz completed</h2>
+    <div class="who">${esc(name)}</div>
+    <div class="mut">${esc(sess.title || "EFAW Live Quiz")} · ${esc(fmtDate(when))}</div>
+    <div style="font-size:22px;font-weight:700;margin-top:10px">${r.c} of ${r.n} correct (${r.pct}%)</div>
+    <p class="mut" style="font-size:14px">Your results have been sent to your trainer.</p>
+    <div class="actions" style="justify-content:center">
+      ${r.n && window.jspdf ? `<button class="btn ghost" id="pdf" type="button">Download my results (PDF)</button>` : ""}
+    </div>
+    <div style="margin-top:14px"><button class="link" id="leave" type="button">Finish</button></div>
+  </div>
+  ${r.missed.length ? `<div class="card"><h2 style="font-size:17px">Questions to review</h2>${r.missed.map(a => { const q = byId[a.qid]; return `<div style="border-top:1px solid var(--line);padding:10px 0;font-size:14px"><b>${esc(q[2])}</b><div style="color:var(--red)">Your answer: ${esc(q[3][a.choice])}</div><div style="color:var(--green-d);font-weight:600">Correct: ${esc(q[3][0])}</div></div>`; }).join("")}</div>` : ""}`;
+  wire();
+  const p = $("#pdf");
+  if (p) p.onclick = () => downloadBlob(buildRecordPdf({ name, sessionTitle: sess.title, completedAt: when, answers: list }), pdfFileName(name, when));
+}
+</script>
+</body>
+</html>
