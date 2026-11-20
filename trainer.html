@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EFAW Live Quiz – Trainer</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400..700&family=Nunito+Sans:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="slides.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -17,6 +19,7 @@
   <div class="spacer"></div>
   <div id="nav" class="row" style="display:none">
     <button class="hbtn" data-tab="live" type="button">Live session</button>
+    <button class="hbtn" data-tab="present" type="button">Presentation</button>
     <button class="hbtn" data-tab="results" type="button">Results</button>
     <button class="hbtn" id="out" type="button">Sign out</button>
   </div>
@@ -28,12 +31,15 @@ import { configured, auth, db, signInWithEmailAndPassword, onAuthStateChanged, s
          doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot } from "./fb.js";
 import { $, esc, toast, confirmBox, shuffle, LETTERS, TOPICS, BANK, byId, scoreAnswers, buildRecordPdf, buildCertificatePdf, certFileName, certNumber, PASS_MARK,
          pdfFileName, downloadBlob, qrSvg, joinUrl, setupNotice, fmtDate, isoDate, safeName } from "./common.js";
+import { SLIDES } from "./slides.js";
 
 const app = $("#app");
 const ACTIVE = "efaw.live.active";
 let user = null, tab = "live";
 let code = null, sess = null, players = {}, answers = [], retests = {}, unsubs = [];
 let topicSel = "balanced";
+let liveView = "quiz";                               // "quiz" or "slides" during a live session
+let slideIdx = 0, fragShown = 0, showNotes = false, liveMode = false;
 
 /* ---------- Auth ---------- */
 if (!configured) app.innerHTML = setupNotice();
@@ -80,6 +86,7 @@ function go(t){
   tab = t;
   document.querySelectorAll("#nav [data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
   if (t === "results"){ stopLive(); renderResults(); }
+  else if (t === "present"){ stopLive(); renderPresent(); }
   else {
     let saved = null; try { saved = localStorage.getItem(ACTIVE); } catch(e){}
     if (saved) openLive(saved); else renderCreate();
@@ -224,18 +231,32 @@ function renderLive(){
     return;
   }
 
-  app.innerHTML = `
-    <div class="topbar"><span class="t">${esc(sess.title)}</span><span class="c">${esc(code)}</span>
+  const top = `<div class="topbar"><span class="t">${esc(sess.title)}</span><span class="c">${esc(code)}</span>
       <span class="mut">${n} candidate${n === 1 ? "" : "s"} · ${sess.total ? `${(sess.asked || []).length} of ${sess.total} questions asked` : `${(sess.asked || []).length} question${(sess.asked || []).length === 1 ? "" : "s"} asked`}</span>
       <span style="flex:1"></span>
-      ${st !== "lobby" ? `<button class="btn ghost" id="showJoin" type="button">Show join code</button>` : ""}
-      <button class="btn danger" id="end" type="button">End session</button></div>
-    ${stage}
-    <div class="controls">${controls}</div>`;
+      <div class="viewtoggle"><button data-v="slides" class="${liveView === "slides" ? "on" : ""}" type="button">Slides</button><button data-v="quiz" class="${liveView === "quiz" ? "on" : ""}" type="button">Quiz</button></div>
+      <button class="btn ghost" id="showJoin" type="button">Show join code</button>
+      <button class="btn danger" id="end" type="button">End session</button></div>`;
+  if (!$("#liveShell") || $("#liveShell").dataset.code !== code)
+    app.innerHTML = `<div id="liveShell" data-code="${esc(code)}"><div id="liveTop"></div><div id="liveBody"></div></div>`;
+  $("#liveTop").innerHTML = top;
+  if (liveView === "slides"){
+    if (!$("#liveBody .player")) mountPlayer($("#liveBody"), true); else updateLiveButton();
+  } else {
+    const toSlides = st === "question" ? "" : `<button class="btn big ghost" id="toSlides" type="button">${st === "lobby" && !sess.q ? "Start presentation" : "Back to slides"}</button>`;
+    $("#liveBody").innerHTML = `${stage}<div class="controls">${controls}${toSlides}</div>`;
+  }
   wireLive();
 }
 
+function setLiveView(v){
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  liveView = v; const b = $("#liveBody"); if (b) b.innerHTML = ""; renderLive();
+}
+
 function wireLive(){
+  document.querySelectorAll(".viewtoggle [data-v]").forEach(b => b.onclick = () => setLiveView(b.dataset.v));
+  const tsl = $("#toSlides"); if (tsl) tsl.onclick = () => setLiveView("slides");
   const ts = $("#ts"); if (ts) ts.onchange = () => { topicSel = ts.value; };
   const qb = $("#qrBox"); if (qb) qb.onclick = showQrFull;
   const sj = $("#showJoin"); if (sj) sj.onclick = showQrFull;
@@ -250,6 +271,91 @@ function wireLive(){
   };
 }
 function err(e){ console.error(e); toast("That didn't save. Check your connection."); }
+
+/* ---------- Presentation player ---------- */
+function renderPresent(){
+  app.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">Training presentation</h2>
+    <span class="mut" style="font-size:13px">To run the live quiz alongside the slides, start a session in <b>Live session</b> and use its <b>Slides</b> view.</span></div><div id="presWrap"></div>`;
+  mountPlayer($("#presWrap"), false);
+}
+
+function mountPlayer(el, live){
+  liveMode = live;
+  const secs = [];
+  SLIDES.forEach((s, i) => { if (!secs.length || secs[secs.length - 1].sec !== s.sec) secs.push({ sec: s.sec, i }); });
+  el.innerHTML = `<div class="player">
+    <div class="pstage" id="pstage"><div class="deck" id="pdeck"></div><div class="pfs-hint" id="pfsHint" hidden>← → or click to move · Esc to exit</div></div>
+    <div class="pbar">
+      <button class="pbtn" id="pPrev" type="button">‹ Prev</button><span class="pcount" id="pCount"></span><button class="pbtn primary" id="pNext" type="button">Next ›</button>
+      <select id="pJump" aria-label="Jump to section">${secs.map(s => `<option value="${s.i}">${esc(s.sec)}</option>`).join("")}</select>
+      <span id="pLive"></span><span style="flex:1"></span>
+      <button class="pbtn" id="pNotes" type="button">${showNotes ? "Hide notes" : "Speaker notes"}</button>
+      <button class="pbtn" id="pFull" type="button">Full screen</button>
+    </div>
+    <div class="pnotes" id="pNotesBox" ${showNotes ? "" : "hidden"}></div></div>`;
+  $("#pPrev").onclick = prevSlide; $("#pNext").onclick = nextSlide;
+  $("#pJump").onchange = e => goSlide(+e.target.value);
+  $("#pNotes").onclick = () => { showNotes = !showNotes; $("#pNotesBox").hidden = !showNotes; $("#pNotes").textContent = showNotes ? "Hide notes" : "Speaker notes"; };
+  $("#pFull").onclick = () => { const st = $("#pstage"); (document.fullscreenElement ? document.exitFullscreen() : st.requestFullscreen()).catch(() => toast("Full screen isn't available here")); };
+  $("#pstage").onclick = e => { if (e.target.closest("a")) return; nextSlide(); };
+  showSlide();
+}
+
+function fitSlide(){
+  const st = $("#pstage"), d = $("#pdeck"); if (!st || !d) return;
+  const fs = document.fullscreenElement === st;
+  const w = fs ? window.innerWidth : st.clientWidth, h = fs ? window.innerHeight : w * 1080 / 1920;
+  const sc = Math.min(w / 1920, h / 1080);
+  d.style.transform = `scale(${sc})`;
+  d.style.left = fs ? (w - 1920 * sc) / 2 + "px" : "0"; d.style.top = fs ? (h - 1080 * sc) / 2 + "px" : "0";
+  if (!fs) st.style.height = 1080 * sc + "px";
+}
+window.addEventListener("resize", fitSlide);
+document.addEventListener("fullscreenchange", () => { fitSlide(); const h = $("#pfsHint"); if (h) h.hidden = !document.fullscreenElement; });
+
+function showSlide(){
+  const d = $("#pdeck"); if (!d) return;
+  slideIdx = Math.max(0, Math.min(SLIDES.length - 1, slideIdx));
+  const s = SLIDES[slideIdx];
+  d.innerHTML = s.html; fragShown = 0; fitSlide();
+  $("#pCount").textContent = `${slideIdx + 1} / ${SLIDES.length}`;
+  const opts = [...$("#pJump").options]; let sel = opts[0];
+  opts.forEach(o => { if (+o.value <= slideIdx) sel = o; }); $("#pJump").value = sel.value;
+  $("#pNotesBox").innerHTML = s.notes ? `<b>Speaker notes</b>${esc(s.notes)}` : `<b>Speaker notes</b><span class="mut">None for this slide.</span>`;
+  $("#pPrev").disabled = slideIdx === 0;
+  updateLiveButton();
+}
+function frags(){ return [...document.querySelectorAll("#pdeck .fragment")]; }
+function nextSlide(){
+  const f = frags();
+  if (fragShown < f.length){ f[fragShown++].classList.add("visible"); return; }
+  if (slideIdx < SLIDES.length - 1){ slideIdx++; showSlide(); }
+}
+function prevSlide(){ if (slideIdx > 0){ slideIdx--; showSlide(); } }
+function goSlide(i){ slideIdx = i; showSlide(); }
+
+function updateLiveButton(){
+  const el = $("#pLive"); if (!el) return;
+  const s = SLIDES[slideIdx];
+  if (!liveMode || !sess || sess.status === "ended" || !s){ el.innerHTML = ""; return; }
+  if (!s.topic && s.id !== "close-quiz"){ el.innerHTML = ""; return; }
+  if (quizDone()){ el.innerHTML = `<span class="mut" style="font-size:14px">All ${sess.total} questions asked</span>`; return; }
+  const busy = sess.status === "question" || sess.status === "retest";
+  const label = s.topic ? `Ask live question: ${TOPICS[s.topic]}` : "Go to the live quiz";
+  el.innerHTML = `<button class="pbtn live" id="pAsk" type="button" ${busy ? "disabled" : ""} title="Shortcut: Q">▶ ${esc(label)}</button>`;
+  $("#pAsk").onclick = async () => {
+    if (s.topic){ topicSel = s.topic; setLiveView("quiz"); await askQuestion(); }
+    else { topicSel = "balanced"; setLiveView("quiz"); }
+  };
+}
+
+document.addEventListener("keydown", e => {
+  if (!$("#pdeck") || e.target.closest("input, select, textarea") || $(".modal")) return;
+  if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)){ e.preventDefault(); nextSlide(); }
+  else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)){ e.preventDefault(); prevSlide(); }
+  else if (e.key === "f" || e.key === "F"){ $("#pFull").click(); }
+  else if ((e.key === "q" || e.key === "Q") && $("#pAsk") && !$("#pAsk").disabled){ $("#pAsk").click(); }
+});
 
 function showQrFull(){
   const d = document.createElement("div");

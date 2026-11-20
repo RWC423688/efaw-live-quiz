@@ -15,6 +15,7 @@ A trainer-led live quiz for Emergency First Aid at Work courses.
 | `trainer.html` | Trainer page: live session + Results admin panel |
 | `config.js` | **You paste your Firebase settings here** |
 | `questions.js` | The question bank (edit here to change questions) |
+| `slides.js`, `slides.css` | The training presentation slides |
 | `firestore.rules` | Database security rules (pasted into Firebase) |
 
 ---
@@ -81,6 +82,14 @@ You need a free **Firebase** project (Google) to store results, and somewhere to
 - If a candidate's phone locks or they close the page, they reopen the same link and are put straight back in.
 - **Show join code** brings the QR code back full screen for latecomers.
 - If you reload the trainer page mid-session, it returns to the live session.
+
+## Presenting the training slides
+The 59-slide EFAW training presentation is built into the trainer page.
+- **During a live session:** use the **Slides / Quiz** switch at the top. In the lobby, click **Start presentation**.
+- **Moving through slides:** use **Next / Prev**, the arrow keys, Page Up/Down (most presentation clickers), or click the slide. Press **F** or click **Full screen** for the projector, and **Esc** to exit. The section menu jumps straight to any section. **Speaker notes** shows the notes under the slide (keep it off while projecting, or use a second screen).
+- **Quick questions slides:** each press reveals the next answer. The **▶ Ask live question: <topic>** button (shortcut **Q**) switches to the quiz and sends a question on that section to every phone. After **Reveal answer**, click **Next question** for another on the same topic, or **Back to slides** to carry on where you left off.
+- **Without a session:** the **Presentation** tab shows the same slides on their own.
+- **Demonstration video slides:** the link opens the video in a new tab. Close it to return to the slides.
 
 ## Certificates (80% pass mark)
 - A candidate **passes** with 80% or more on the main questions (the 15, 30 or 45). Catch-up questions aren't counted.
