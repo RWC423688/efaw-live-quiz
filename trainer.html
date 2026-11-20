@@ -33,7 +33,7 @@ const app = $("#app");
 const ACTIVE = "efaw.live.active";
 let user = null, tab = "live";
 let code = null, sess = null, players = {}, answers = [], retests = {}, unsubs = [];
-let topicSel = "all";
+let topicSel = "balanced";
 
 /* ---------- Auth ---------- */
 if (!configured) app.innerHTML = setupNotice();
@@ -96,14 +96,19 @@ function renderCreate(){
     <p class="lead">Candidates join on their phones with a code. You push questions to everyone at once, reveal the answers, and send catch-up questions to anyone who got one wrong.</p>
     <label class="f" for="st">Session name</label>
     <input type="text" id="st" value="EFAW course – ${esc(today)}">
+    <label class="f">Number of questions</label>
+    <div class="seg" id="lenSeg">${[15, 30, 45].map(n => `<button type="button" data-n="${n}" class="${n === 30 ? "on" : ""}">${n} questions</button>`).join("")}</div>
+    <p class="mut" style="font-size:13px;margin:8px 0 0">Catch-up questions for wrong answers are extra and don't count towards this number.</p>
     <div class="actions"><button class="btn big" id="cs" type="button">Create session</button></div></div>`;
+  let total = 30;
+  $("#lenSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; total = +b.dataset.n; [...$("#lenSeg").children].forEach(x => x.classList.toggle("on", x === b)); };
   $("#cs").onclick = async () => {
     $("#cs").disabled = true;
     try {
       let c;
       for (let i = 0; i < 5; i++){ c = makeCode(); if (!(await getDoc(doc(db, "sessions", c))).exists()) break; }
       await setDoc(doc(db, "sessions", c), { code: c, title: $("#st").value.trim() || "EFAW course", createdAt: Date.now(), trainerUid: user.uid,
-                                             status: "lobby", q: null, asked: [], retestRound: 0, endedAt: null });
+                                             status: "lobby", q: null, asked: [], retestRound: 0, endedAt: null, total });
       openLive(c);
     } catch(e){ console.error(e); toast("Couldn't create the session. Check your connection."); $("#cs").disabled = false; }
   };
@@ -128,7 +133,9 @@ function openLive(c){
 const sessRef = () => doc(db, "sessions", code);
 const playerIds = () => Object.keys(players).sort((a, b) => (players[a].name || "").localeCompare(players[b].name || ""));
 const usedQids = () => new Set([...(sess.asked || []), ...Object.values(retests).flatMap(r => r.qids || [])]);
-const remaining = t => BANK.filter(q => (t === "all" || q[1] === t) && !usedQids().has(q[0])).length;
+const remaining = t => BANK.filter(q => (t === "all" || t === "balanced" || q[1] === t) && !usedQids().has(q[0])).length;
+const quizDone = () => !!sess.total && (sess.asked || []).length >= sess.total;
+const qLabel = n => `Question ${n}${sess.total ? ` of ${sess.total}` : ""}`;
 
 function needsCatchup(){
   // players with a wrong main answer that has no catch-up question yet
@@ -141,7 +148,7 @@ function needsCatchup(){
 }
 
 function topicSelect(){
-  return `<select id="ts">${[["all", "All topics"], ...Object.entries(TOPICS)].map(([k, v]) =>
+  return `<select id="ts">${[["balanced", "Balanced mix of all topics"], ["all", "Any topic (random)"], ...Object.entries(TOPICS)].map(([k, v]) =>
     `<option value="${k}" ${k === topicSel ? "selected" : ""}>${esc(v)} (${remaining(k)} left)</option>`).join("")}</select>`;
 }
 
@@ -167,7 +174,9 @@ function renderLive(){
   if (tab !== "live" || !sess) return;
   const st = sess.status, n = playerIds().length;
   let stage = "", controls = "";
-  const askBtn = `${topicSelect()}<button class="btn big" id="ask" type="button">${sess.q ? "Next question" : "Ask first question"}</button>`;
+  const askBtn = quizDone()
+    ? `<span class="mut" style="font-size:16px">All ${sess.total} questions asked.</span><button class="btn big" id="finishQuiz" type="button">Finish quiz</button>`
+    : `${topicSelect()}<button class="btn big" id="ask" type="button">${sess.q ? "Next question" : "Ask first question"}</button>`;
 
   if (st === "lobby" || st === "wait"){
     stage = `<div class="stage">${joinPanel()}<h3 style="margin-top:24px">${n} joined</h3>${peopleChips(null)}</div>`;
@@ -179,7 +188,7 @@ function renderLive(){
     const counts = [0,1,2,3].map(o => qa.filter(a => a.choice === o).length);
     const max = Math.max(1, ...counts);
     stage = `<div class="stage">
-      <div class="row" style="justify-content:space-between"><span class="chip">${esc(TOPICS[q[1]])}</span><span class="mut">Question ${sess.q.n}</span></div>
+      <div class="row" style="justify-content:space-between"><span class="chip">${esc(TOPICS[q[1]])}</span><span class="mut">${qLabel(sess.q.n)}</span></div>
       <div class="sq">${esc(q[2])}</div>
       <div class="sopts">${sess.q.order.map((o, k) => `<div class="sopt ${reveal ? (o === 0 ? "right" : "dim") : ""}">
         ${reveal ? `<div class="fill" style="width:${counts[o] / max * 100}%"></div>` : ""}
@@ -217,7 +226,7 @@ function renderLive(){
 
   app.innerHTML = `
     <div class="topbar"><span class="t">${esc(sess.title)}</span><span class="c">${esc(code)}</span>
-      <span class="mut">${n} candidate${n === 1 ? "" : "s"} · ${(sess.asked || []).length} question${(sess.asked || []).length === 1 ? "" : "s"} asked</span>
+      <span class="mut">${n} candidate${n === 1 ? "" : "s"} · ${sess.total ? `${(sess.asked || []).length} of ${sess.total} questions asked` : `${(sess.asked || []).length} question${(sess.asked || []).length === 1 ? "" : "s"} asked`}</span>
       <span style="flex:1"></span>
       ${st !== "lobby" ? `<button class="btn ghost" id="showJoin" type="button">Show join code</button>` : ""}
       <button class="btn danger" id="end" type="button">End session</button></div>
@@ -234,6 +243,7 @@ function wireLive(){
   const rv = $("#reveal"); if (rv) rv.onclick = () => updateDoc(sessRef(), { status: "reveal" }).catch(err);
   const ca = $("#catch"); if (ca) ca.onclick = sendCatchup;
   const fc = $("#finishCatch"); if (fc) fc.onclick = () => updateDoc(sessRef(), { status: "wait" }).catch(err);
+  const fq = $("#finishQuiz"); if (fq) fq.onclick = () => $("#end").click();
   const en = $("#end"); if (en) en.onclick = async () => {
     if (!(await confirmBox("End this session?", "Candidates will see their completion page and can download their results. You can't reopen the session.", "End session"))) return;
     updateDoc(sessRef(), { status: "ended", endedAt: Date.now() }).catch(err);
@@ -250,9 +260,22 @@ function showQrFull(){
 }
 
 async function askQuestion(){
+  if (quizDone()){ toast(`All ${sess.total} questions have been asked.`); return; }
   const used = usedQids();
-  const pool = BANK.filter(q => (topicSel === "all" || q[1] === topicSel) && !used.has(q[0]));
-  if (!pool.length){ toast("No unused questions left in that topic. Pick another."); return; }
+  let pool;
+  if (topicSel === "balanced"){
+    // pick from the topic(s) asked least so far that still have unused questions
+    const count = {}; Object.keys(TOPICS).forEach(t => count[t] = 0);
+    (sess.asked || []).forEach(id => { if (byId[id]) count[byId[id][1]]++; });
+    const avail = Object.keys(TOPICS).filter(t => BANK.some(q => q[1] === t && !used.has(q[0])));
+    const min = Math.min(...avail.map(t => count[t]));
+    const tops = avail.filter(t => count[t] === min);
+    const t = tops[Math.floor(Math.random() * tops.length)];
+    pool = BANK.filter(q => q[1] === t && !used.has(q[0]));
+  } else {
+    pool = BANK.filter(q => (topicSel === "all" || q[1] === topicSel) && !used.has(q[0]));
+  }
+  if (!pool || !pool.length){ toast("No unused questions left in that topic. Pick another."); return; }
   const q = pool[Math.floor(Math.random() * pool.length)];
   const asked = [...(sess.asked || []), q[0]];
   await updateDoc(sessRef(), { status: "question", q: { qid: q[0], order: shuffle([0,1,2,3]), n: asked.length, at: Date.now() }, asked }).catch(err);
@@ -320,7 +343,7 @@ async function openResult(c){
   const col = p => p >= 80 ? "var(--green)" : p >= 60 ? "#d08a00" : "var(--red)";
   app.innerHTML = `<div class="card">
     <div class="row" style="justify-content:space-between"><div><button class="link" id="back" type="button">← All sessions</button>
-      <h2 style="margin-top:6px">${esc(s.title)}</h2><div class="mut">${esc(fmtDate(s.createdAt))} · code ${esc(s.code)} · ${rows.length} candidates · ${(s.asked || []).length} questions asked · ${s.status === "ended" ? "Ended" : "Still live"}</div></div>
+      <h2 style="margin-top:6px">${esc(s.title)}</h2><div class="mut">${esc(fmtDate(s.createdAt))} · code ${esc(s.code)} · ${rows.length} candidates · ${(s.asked || []).length}${s.total ? ` of ${s.total}` : ""} questions asked · ${s.status === "ended" ? "Ended" : "Still live"}</div></div>
       <div class="row"><button class="btn ghost" id="csv" type="button">Export CSV</button><button class="btn" id="zip" type="button" ${rows.length ? "" : "disabled"}>Download all PDFs</button></div></div>
     <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Score</th><th class="num">Main</th><th class="num">Catch-up</th><th></th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr><td><b>${esc(r.name)}</b></td>

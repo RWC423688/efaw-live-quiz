@@ -68,13 +68,13 @@ You need a free **Firebase** project (Google) to store results, and somewhere to
 ## Running a session
 
 1. Open `trainer.html` on the laptop connected to the projector and sign in.
-2. **Create session**. The join screen shows a QR code and a 5-character code. Candidates scan it and type their name. You'll see names appear (12 is no problem).
+2. Choose **15, 30 or 45 questions** and click **Create session**. The join screen shows a QR code and a 5-character code. Candidates scan it and type their name. You'll see names appear (12 is no problem).
 3. Teach a section from the presentation. At its "Quick questions" slide, switch to the quiz tab:
-   - Choose the section's topic (e.g. *CPR & AED*) and click **Ask first question / Next question**.
+   - Leave the topic on **Balanced mix** to spread questions evenly across all 10 topics, or pick the section you've just taught (e.g. *CPR & AED*). Then click **Ask first question / Next question**. The screen shows *Question 7 of 30*.
    - Watch answers arrive. Names turn green as people answer.
    - Click **Reveal answer**. The projector shows the correct answer, the explanation and how many chose each option. Phones show each candidate whether they were right.
    - Click **Send catch-up questions** to send everyone who got a question wrong a *different* question on the same topic, on their own phone. Click **Finish catch-up** when they're done.
-4. At the end, click **End session**. Each candidate sees a **Quiz completed** page and can download their own PDF.
+4. After the last question, a **Finish quiz** button appears (you can still send catch-ups first). Or click **End session** at any time. Each candidate sees a **Quiz completed** page and can download their own PDF.
 5. Go to **Results**, open the session and click **Download all PDFs**. Save the zip into the **DM Learning OneDrive** folder. **Export CSV** gives a spreadsheet of everyone's scores by topic.
 
 **Tips**

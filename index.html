@@ -164,7 +164,7 @@ function render(){
     const qid = sess.q.qid, mine = myAnswers[qid];
     const footer = mine ? `<div class="fb info"><b>Answer locked in</b>Wait for the trainer to reveal the answer.</div>`
                  : pending.has(qid) ? `<div class="fb info"><b>Sending…</b></div>` : "";
-    html += questionCard(qid, sess.q.order, { label: `Question ${sess.q.n}`, footer });
+    html += questionCard(qid, sess.q.order, { label: `Question ${sess.q.n}${sess.total ? " of " + sess.total : ""}`, footer });
   }
   else if (st === "reveal"){
     const qid = sess.q.qid, q = byId[qid], mine = myAnswers[qid];
@@ -172,7 +172,7 @@ function render(){
     if (!mine) fb = `<div class="fb info"><b>You didn't answer this one</b>The answer is: ${esc(q[3][0])}. ${esc(q[4])}</div>`;
     else if (mine.choice === 0) fb = `<div class="fb ok"><b>Correct!</b>${esc(q[4])}</div>`;
     else fb = `<div class="fb no"><b>Not this time. The answer is: ${esc(q[3][0])}</b>${esc(q[4])}<div style="margin-top:6px;font-weight:600;color:var(--amber)">If your trainer runs a catch-up round, you'll get a different question on this topic.</div></div>`;
-    html += questionCard(qid, sess.q.order, { label: `Question ${sess.q.n}`, reveal: true, forceReveal: true, closed: true, footer: fb });
+    html += questionCard(qid, sess.q.order, { label: `Question ${sess.q.n}${sess.total ? " of " + sess.total : ""}`, reveal: true, forceReveal: true, closed: true, footer: fb });
   }
   else if (st === "retest"){
     const items = (retest && retest.items) || [];

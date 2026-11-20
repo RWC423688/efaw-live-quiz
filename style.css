@@ -112,3 +112,6 @@ td.num,th.num{text-align:right;white-space:nowrap}
 .qrfull svg{width:min(70vh,80vw);height:auto}
 .qrfull .codebig{font-size:72px;font-weight:800;letter-spacing:12px}
 @media (max-width:760px){.stage .sopts{grid-template-columns:1fr}.join{grid-template-columns:1fr}.stage .sq{font-size:24px}.sopt{font-size:17px}}
+.seg{display:flex;flex-wrap:wrap;gap:8px}
+.seg button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 16px;font:inherit;font-size:15px;cursor:pointer}
+.seg button.on{background:var(--green);border-color:var(--green);color:#fff}
