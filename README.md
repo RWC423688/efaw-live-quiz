@@ -95,13 +95,14 @@ The 59-slide EFAW training presentation is built into the trainer page.
 ## Highfield qualification and theory paper
 For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Work (RQF)**, the app can deliver a Highfield theory paper at the end of the course and produce a completed **Learner Answer Sheet (LAS)** for each of them.
 
-**Keep the Highfield material private.** The papers say they must be stored securely. They are **not** in this repository. They come in a separate private file, `highfield-papers.json`, that you import once in the trainer page. It then lives in your Firebase database, readable only by trainer accounts. **Never upload that file to GitHub.** After importing, store it securely or delete it.
+**Where the papers live.** The questions for papers EFAW22309 and EFAW22310 are stored in your Firebase database, readable only by trainer accounts. They are **not** in this public repository. Candidates only receive a paper's questions while it's running, and never the answers.
 
 **One-off set-up**
-1. Publish the updated `firestore.rules` in Firebase (Firestore Database › Rules › paste › Publish).
-2. In the trainer page, open the **Highfield** tab and click **Choose file**, then pick `highfield-papers.json`.
-3. For each paper, click **Check answer key**, compare every answer with **Highfield's official marking key**, correct any that differ, and click **Confirm answer key**. Answer sheets can't be produced until a paper's key is confirmed.
-4. Use **Test answer sheet** to check the output prints correctly.
+1. Make sure the updated `firestore.rules` is published in Firebase (Firestore Database › Rules).
+2. In the trainer page, open the **Highfield** tab. For each paper:
+   - Click **Check answer key**, compare every answer with **Highfield's official marking key**, correct any that differ, and click **Confirm answer key**. Answer sheets can't be produced until a paper's key is confirmed.
+   - Click **Upload answer sheet PDF** and choose the blank Highfield Learner Answer Sheet for that paper. If a paper has no sheet of its own, the other paper's sheet is used with the paper code changed.
+3. Use **Test answer sheet** to check the output prints correctly.
 
 **Running it**
 - When creating a session, tick **Include the Highfield theory paper**, choose the paper, and fill in Course ID, Centre name and number, and Tutor name and number. Centre and tutor details are remembered.

@@ -373,23 +373,32 @@ function wireLive(){
 }
 function err(e){ console.error(e); toast("That didn't save. Check your connection."); }
 
-/* ---------- Highfield admin (papers, answer keys, answer-sheet template) ---------- */
+/* ---------- Highfield admin (papers, answer keys, answer-sheet templates) ---------- */
+async function loadTemplates(){
+  const qs = await getDocs(collection(db, "hfTemplates")); const t = {};
+  qs.forEach(d => { const v = d.data(); if (v && v.pdfBase64) t[v.paperCode || d.id] = v; });
+  return t;
+}
+function pickTemplate(tpls, code){ return tpls[code] || tpls.EFAW22309 || Object.values(tpls)[0] || null; }
+async function pdfToBase64(file){
+  const buf = new Uint8Array(await file.arrayBuffer());
+  if (String.fromCharCode(...buf.slice(0, 5)) !== "%PDF-") throw new Error("not a pdf");
+  let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
 async function renderHighfield(){
   app.innerHTML = `<div class="card"><h2>Highfield papers</h2><div id="hfwrap"><div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div></div>`;
-  let papers = [], tpl = null;
+  let papers = [], tpls = {};
   try {
-    const [qs, td] = await Promise.all([getDocs(collection(db, "hfPapers")), getDoc(doc(db, "hfTemplates", "las"))]);
+    const [qs, t] = await Promise.all([getDocs(collection(db, "hfPapers")), loadTemplates()]);
     qs.forEach(d => papers.push(d.data())); papers.sort((a, b) => a.code.localeCompare(b.code));
-    tpl = td.exists() ? td.data() : null;
+    tpls = t;
   } catch(e){ console.error(e); $("#hfwrap").innerHTML = `<p class="err">Couldn't load the Highfield material. Check the database rules have been updated (see the setup guide).</p>`; return; }
   if (tab !== "highfield") return;
   $("#hfwrap").innerHTML = `
     <p class="lead">Highfield papers, answer keys and the Learner Answer Sheet are kept in your database, readable only by trainer accounts. They are never part of the website code. Candidates only receive a paper's questions while it's running, and never the answers.</p>
-    <div class="hfimport">
-      <div><b>Import or update the Highfield file</b><div class="mut" style="font-size:13px">Choose <i>highfield-papers.json</i>. Afterwards, keep that file somewhere secure or delete it.</div></div>
-      <label class="btn ghost" style="cursor:pointer">Choose file<input type="file" id="hfFile" accept=".json,application/json" hidden></label>
-    </div>
-    <div class="mut" style="margin:10px 0 4px;font-size:14px">Answer sheet template: ${tpl ? `<b style="color:var(--green-d)">loaded</b> (${esc(tpl.name || "Learner Answer Sheet")})` : `<b style="color:var(--red)">not loaded</b>`}</div>
+    <p class="mut" style="font-size:13.5px;margin:0 0 4px">Each paper needs two things before its answer sheets can be produced: a <b>confirmed answer key</b>, and the blank <b>Learner Answer Sheet PDF</b> from Highfield.
+      If a paper has no answer sheet of its own, the other paper's sheet is used with the paper code changed.</p>
     ${papers.length ? papers.map((p, pi) => {
       const key = (p.key && p.key.length === 15 ? p.key : p.suggestedKey) || [];
       return `<div class="hfpaper">
@@ -398,6 +407,9 @@ async function renderHighfield(){
             ${p.keyConfirmed && p.confirmedAt ? `<span class="mut" style="font-size:12px"> · ${esc(fmtDate(p.confirmedAt))}</span>` : ""}</div>
           <div class="row"><button class="btn ghost" data-test="${pi}" type="button">Test answer sheet</button><button class="btn ghost" data-open="${pi}" type="button">Check answer key</button></div>
         </div>
+        <div class="hfsheet">Answer sheet: ${tpls[p.code] ? `<b style="color:var(--green-d)">uploaded</b> <span class="mut">(${esc(tpls[p.code].name || "PDF")})</span>`
+            : pickTemplate(tpls, p.code) ? `<span class="mut">using the ${esc(pickTemplate(tpls, p.code).paperCode)} sheet with the paper code changed</span>` : `<b style="color:var(--red)">not uploaded</b>`}
+          <label class="link" style="cursor:pointer;margin-left:8px">${tpls[p.code] ? "Replace" : "Upload answer sheet PDF"}<input type="file" data-up="${pi}" accept="application/pdf,.pdf" hidden></label></div>
         <div class="hfkey" id="hfk${pi}" hidden>
           <p class="mut" style="font-size:13.5px;margin:10px 0">Check each answer against <b>Highfield's official marking key for ${esc(p.code)}</b>, correct any that differ, then confirm. ${p.keyConfirmed ? "" : "The answers shown are suggested and haven't been checked yet."}</p>
           ${p.questions.map((q, i) => `<div class="hfkq"><div><b>${q.n}.</b> ${esc(q.q)}<div class="hfopts">${q.options.map((o, k) => `<span><b>${"ABCD"[k]}.</b> ${esc(o)}</span>`).join("")}</div></div>
@@ -405,24 +417,17 @@ async function renderHighfield(){
           <div class="actions"><button class="btn" data-confirm="${pi}" type="button">Confirm answer key for ${esc(p.code)}</button></div>
         </div></div>`; }).join("")
       : `<p class="mut">No papers imported yet.</p>`}`;
-  $("#hfFile").onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
+  app.querySelectorAll("[data-up]").forEach(inp => inp.onchange = async e => {
+    const p = papers[+inp.dataset.up], f = e.target.files[0]; if (!f) return;
+    if (f.size > 900 * 1024){ toast("That PDF is too large (over 900 KB). Use the blank answer sheet from Highfield."); return; }
     try {
-      const d = JSON.parse(await f.text());
-      if (d.format !== "dm-learning-highfield-v1" || !Array.isArray(d.papers)) throw new Error("format");
-      for (const p of d.papers){
-        if (!p.code || !Array.isArray(p.questions) || p.questions.length !== 15) throw new Error("paper " + p.code);
-        const ex = await getDoc(doc(db, "hfPapers", p.code));
-        const same = ex.exists() && JSON.stringify(ex.data().questions) === JSON.stringify(p.questions);
-        await setDoc(doc(db, "hfPapers", p.code), { code: p.code, questions: p.questions, suggestedKey: p.suggestedKey || [],
-          key: same ? (ex.data().key || null) : null, keyConfirmed: same ? !!ex.data().keyConfirmed : false,
-          confirmedAt: same ? (ex.data().confirmedAt || null) : null, importedAt: Date.now() });
-      }
-      if (d.template && d.template.pdfBase64)
-        await setDoc(doc(db, "hfTemplates", "las"), { pdfBase64: d.template.pdfBase64, paperCode: d.template.paperCode || "", name: d.template.name || "Learner Answer Sheet", importedAt: Date.now() });
-      toast(`Imported ${d.papers.length} paper${d.papers.length === 1 ? "" : "s"}`); renderHighfield();
-    } catch(e2){ console.error(e2); toast("That isn't a valid Highfield file."); }
-  };
+      const b64 = await pdfToBase64(f);
+      if (window.PDFLib){ const d = await window.PDFLib.PDFDocument.load(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+        if (d.getPageCount() !== 2) throw new Error("pages"); }
+      await setDoc(doc(db, "hfTemplates", p.code), { pdfBase64: b64, paperCode: p.code, name: f.name, importedAt: Date.now() });
+      toast(`Answer sheet saved for ${p.code}`); renderHighfield();
+    } catch(e2){ console.error(e2); toast(e2.message === "pages" ? "That doesn't look like the 2-page Learner Answer Sheet." : "Couldn't read that PDF."); }
+  });
   app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { const k = $("#hfk" + b.dataset.open); k.hidden = !k.hidden; });
   app.querySelectorAll("[data-confirm]").forEach(b => b.onclick = async () => {
     const pi = +b.dataset.confirm, p = papers[pi];
@@ -433,7 +438,8 @@ async function renderHighfield(){
   });
   app.querySelectorAll("[data-test]").forEach(b => b.onclick = async () => {
     const p = papers[+b.dataset.test];
-    if (!tpl){ toast("Import the Highfield file first (it includes the answer sheet template)."); return; }
+    const tpl = pickTemplate(tpls, p.code);
+    if (!tpl){ toast("Upload the Learner Answer Sheet PDF first."); return; }
     if (!window.PDFLib){ toast("The PDF library didn't load. Check your connection and reload."); return; }
     const key = p.key && p.key.length === 15 ? p.key : p.suggestedKey;
     const answers = {}; key.forEach((k, i) => answers[i + 1] = i === 3 ? (k === "A" ? "B" : "A") : k);
@@ -615,8 +621,8 @@ async function loadSession(c){
   const sd = s.data();
   let paper = null, tpl = null;
   if (sd.hf && sd.hf.enabled){
-    const [pd, td] = await Promise.all([getDoc(doc(db, "hfPapers", sd.hf.paper)), getDoc(doc(db, "hfTemplates", "las"))]);
-    paper = pd.exists() ? pd.data() : null; tpl = td.exists() ? td.data() : null;
+    const [pd, tpls] = await Promise.all([getDoc(doc(db, "hfPapers", sd.hf.paper)), loadTemplates()]);
+    paper = pd.exists() ? pd.data() : null; tpl = pickTemplate(tpls, sd.hf.paper);
   }
   return { s: sd, pl, an, hf, paper, tpl };
 }
@@ -648,7 +654,7 @@ async function openResult(c){
     ${hfOn ? `<div class="hfinfo"><span class="hfbadge">Highfield</span> Paper <b>${esc(s.hf.paper)}</b> · Course ID ${esc(s.hf.courseId || "–")} · assessed ${esc(fmtUK(s.hf.assessDate))} · ${rows.filter(isHFrow).length} Highfield candidate${rows.filter(isHFrow).length === 1 ? "" : "s"}
       ${keyOk ? (rows.filter(isHFrow).length ? ` · <b>${rows.filter(r => r.hfm && r.hfm.mark >= 11).length} pass</b>, ${rows.filter(r => isHFrow(r) && !(r.hfm && r.hfm.mark >= 11)).length} refer` : "")
               : `<div class="err" style="margin-top:6px">The answer key for ${esc(s.hf.paper)} hasn't been confirmed, so papers can't be marked yet. Confirm it in the <b>Highfield</b> tab.</div>`}
-      ${tpl ? "" : `<div class="err" style="margin-top:6px">The Learner Answer Sheet template isn't loaded. Import the Highfield file in the <b>Highfield</b> tab.</div>`}</div>` : ""}
+      ${tpl ? "" : `<div class="err" style="margin-top:6px">No Learner Answer Sheet has been uploaded. Upload it in the <b>Highfield</b> tab.</div>`}</div>` : ""}
     <div class="row" style="margin-top:12px;gap:8px"><span class="result pass" style="margin:0">${dmRows.filter(r => r.sc.passed).length} passed</span><span class="result fail" style="margin:0">${dmRows.filter(r => !r.sc.passed).length} not passed</span><span class="mut" style="font-size:13px">DM Learning certificate: pass mark ${PASS_MARK}% of the main quiz questions (catch-ups not counted).</span></div>
     <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Quiz score</th><th>Quiz result</th><th class="num">Catch-up</th>${hfOn ? `<th>Highfield paper</th>` : ""}<th></th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr><td><b>${esc(r.name)}</b></td>
@@ -676,7 +682,7 @@ async function openResult(c){
     rows.forEach(r => z.file("Results/" + pdfFileName(r.name, when), pdfFor(r)));
     rows.filter(r => r.sc.passed && !isHFrow(r)).forEach(r => z.file("Certificates/" + certFileName(r.name, when), certFor(r)));
     if (hfOn && keyOk && tpl){ for (const r of rows.filter(r => isHFrow(r) && r.hfa)) z.file("Highfield answer sheets/" + lasName(r), await lasFor(r)); }
-    else if (hfOn && rows.some(isHFrow)) toast("Highfield answer sheets weren't included: confirm the answer key and import the template first.");
+    else if (hfOn && rows.some(isHFrow)) toast("Highfield answer sheets weren't included: confirm the answer key and upload the answer sheet PDF first.");
     downloadBlob(await z.generateAsync({ type: "blob" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.zip`);
   };
   $("#del").onclick = async () => {
@@ -695,7 +701,7 @@ async function openResult(c){
   function pdfFor(r){ return buildRecordPdf({ name: r.name, sessionTitle: s.title, completedAt: when, answers: r.list }); }
   function lasReady(){
     if (!keyOk){ toast(`Confirm the answer key for ${s.hf.paper} in the Highfield tab first.`); return false; }
-    if (!tpl){ toast("Import the Highfield file (with the answer sheet template) in the Highfield tab first."); return false; }
+    if (!tpl){ toast("Upload the Learner Answer Sheet PDF in the Highfield tab first."); return false; }
     if (!window.PDFLib){ toast("The PDF library didn't load. Check your connection and reload."); return false; }
     return true;
   }
