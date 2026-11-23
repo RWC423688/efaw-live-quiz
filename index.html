@@ -27,14 +27,18 @@ let myAnswers = {};          // qid -> answer doc
 let pending = new Set();     // qids being submitted
 let feedbackQid = null;      // catch-up question whose result is on screen
 let unsubs = [];
+let myPlayer = null;         // my player doc (track, dob)
+let hfPaper = null, hfMine = null, hfLocal = {}, hfSaving = false;   // Highfield paper state
 
 const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e){ return null; } })();
 const params = new URLSearchParams(location.search);
 
 if (!configured){ app.innerHTML = setupNotice(); }
 else {
+  let authChecked = false;
   onAuthStateChanged(auth, user => {
-    if (code) return; // already in a session
+    if (authChecked || code) return;   // only the first (page-load) auth state decides what to show
+    authChecked = true;
     me = user ? user.uid : null;
     const urlCode = (params.get("s") || "").toUpperCase();
     if (user && saved && saved.code && (!urlCode || urlCode === saved.code)) resume(saved.code, saved.name);
@@ -67,15 +71,48 @@ function renderJoin(prefCode = "", prefName = "", error = ""){
   };
 }
 
-async function join(c, n){
+async function join(c, n, extra){
   if (!auth.currentUser) await signInAnonymously(auth);
   me = auth.currentUser.uid;
   const s = await getDoc(doc(db, "sessions", c));
   if (!s.exists()) throw Object.assign(new Error("nf"), { userMsg: "No session with that code. Check it and try again." });
   if (s.data().status === "ended") throw Object.assign(new Error("ended"), { userMsg: "That session has finished." });
-  await setDoc(doc(db, "sessions", c, "players", me), { name: n, joinedAt: Date.now(), lastSeen: Date.now() });
+  if (s.data().hf && s.data().hf.enabled && !extra){ renderTrackStep(c, n); return; }
+  await setDoc(doc(db, "sessions", c, "players", me), { name: n, joinedAt: Date.now(), lastSeen: Date.now(), ...(extra || {}) });
   try { localStorage.setItem(KEY, JSON.stringify({ code: c, name: n })); } catch(e){}
   start(c, n);
+}
+
+function renderTrackStep(c, n){
+  app.innerHTML = `
+  <div class="card">
+    <h2>One more step, ${esc(n.split(" ")[0])}</h2>
+    <p class="lead">Which certificate are you working towards on this course?</p>
+    <form id="tf">
+      <label class="track"><input type="radio" name="tr" value="highfield"><span><b>Highfield Level 3 Award in Emergency First Aid at Work (RQF)</b><small>The regulated qualification. You'll also sit the Highfield theory paper at the end.</small></span></label>
+      <label class="track"><input type="radio" name="tr" value="dm"><span><b>DM Learning certificate</b><small>DM Learning's own certificate, awarded for 80% or more on the course quiz.</small></span></label>
+      <div id="dobWrap" hidden>
+        <label class="f" for="dob">Date of birth</label>
+        <input type="date" id="dob" max="${new Date().toISOString().slice(0, 10)}">
+        <p class="mut" style="font-size:12.5px;margin:6px 0 0">Needed for your Highfield answer sheet. Only your trainer can see it.</p>
+      </div>
+      <div class="err" id="te"></div>
+      <button class="btn big full" id="tb" type="submit" style="margin-top:10px">Join</button>
+    </form>
+    <div style="margin-top:12px"><button class="link" id="tback" type="button">Back</button></div>
+  </div>`;
+  app.querySelectorAll('input[name="tr"]').forEach(r => r.onchange = () => { $("#dobWrap").hidden = r.value !== "highfield" || !r.checked; });
+  $("#tback").onclick = () => renderJoin(c, n);
+  $("#tf").onsubmit = async e => {
+    e.preventDefault();
+    const tr = (app.querySelector('input[name="tr"]:checked') || {}).value;
+    if (!tr){ $("#te").textContent = "Choose which certificate you're working towards."; return; }
+    const dob = $("#dob").value;
+    if (tr === "highfield" && !/^\d{4}-\d{2}-\d{2}$/.test(dob)){ $("#te").textContent = "Enter your date of birth."; return; }
+    $("#tb").disabled = true; $("#te").textContent = "";
+    try { await join(c, n, tr === "highfield" ? { track: "highfield", dob } : { track: "dm" }); }
+    catch(err){ console.error(err); $("#te").textContent = err.userMsg || "Couldn't join. Check your connection and try again."; $("#tb").disabled = false; }
+  };
 }
 
 async function resume(c, n){
@@ -83,7 +120,7 @@ async function resume(c, n){
     const s = await getDoc(doc(db, "sessions", c));
     if (!s.exists()){ forget(); renderJoin(); return; }
     if (s.data().status !== "ended"){
-      await setDoc(doc(db, "sessions", c, "players", me), { name: n, joinedAt: Date.now(), lastSeen: Date.now() });
+      await setDoc(doc(db, "sessions", c, "players", me), { name: n, lastSeen: Date.now() }, { merge: true });
     }
     start(c, n);
   } catch(e){ console.error(e); renderJoin(c, n, "Couldn't reconnect. Try joining again."); }
@@ -100,7 +137,10 @@ function start(c, n){
     render();
   }, err => console.error(err)));
   unsubs.push(onSnapshot(doc(db, "sessions", code, "retests", me), snap => { retest = snap.exists() ? snap.data() : null; render(); }, err => console.error(err)));
+  unsubs.push(onSnapshot(doc(db, "sessions", code, "players", me), snap => { myPlayer = snap.exists() ? snap.data() : null; render(); }, err => console.error(err)));
+  unsubs.push(onSnapshot(doc(db, "sessions", code, "hfAnswers", me), snap => { hfMine = snap.exists() ? snap.data() : null; render(); }, err => console.error(err)));
 }
+const isHF = () => !!(myPlayer && myPlayer.track === "highfield" && sess && sess.hf && sess.hf.enabled);
 
 async function answer(qid, choice, isRetest){
   if (myAnswers[qid] || pending.has(qid)) return;
@@ -118,7 +158,99 @@ async function answer(qid, choice, isRetest){
 function head(){
   return `<div class="row" style="justify-content:space-between;margin-bottom:12px"><span class="mut" style="font-size:14px">${esc(name)} · <b>${esc(code)}</b></span><button class="link" id="leave" type="button">Leave</button></div>`;
 }
-function leaveSession(){ unsubs.forEach(u => u()); unsubs = []; forget(); code = null; sess = null; myAnswers = {}; retest = null; endView = "done"; renderJoin(); }
+/* ---------- Highfield theory paper ---------- */
+let hfOpen = false, hfLoading = false, hfSaveTimer = null;
+async function loadPaper(){
+  if (hfPaper || hfLoading) return; hfLoading = true;
+  try { const d = await getDoc(doc(db, "sessions", code, "hf", "paper")); if (d.exists()) hfPaper = d.data(); }
+  catch(e){ console.error(e); toast("Couldn't load the paper. Check your connection."); }
+  hfLoading = false; render();
+}
+const hfAnswersNow = () => ({ ...((hfMine && hfMine.answers) || {}), ...hfLocal });
+
+function renderPaper(){
+  if (!isHF()){
+    hfOpen = false;
+    app.innerHTML = head() + waitCard("Highfield theory paper in progress", "Candidates taking the Highfield qualification are sitting their theory paper. You've finished for now, so please wait quietly."); wire(); return;
+  }
+  if (hfMine && hfMine.submitted){
+    hfOpen = false;
+    app.innerHTML = head() + `<div class="card done"><div class="tick"><svg viewBox="0 0 24 24"><path fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <h2>Paper submitted</h2><p class="lead">Your answers have gone to your tutor for marking. Please wait quietly until everyone has finished.</p></div>`; wire(); return;
+  }
+  if (!hfPaper){ hfOpen = false; app.innerHTML = head() + waitCard("Loading your paper…", "Hold on a moment."); wire(); loadPaper(); return; }
+  if (!hfOpen || !$("#hfPaper")){
+    hfOpen = true;
+    app.innerHTML = head() + `
+    <div id="hfPaper">
+      <div class="card hfhead">
+        <span class="hfbadge">Highfield theory paper</span>
+        <h2>Highfield Level 3 Award in Emergency First Aid at Work (RQF)</h2>
+        <div class="mut">Paper code: <b>${esc(hfPaper.code)}</b> · Unit 1 · 15 questions</div>
+        <ul class="hfrules">
+          <li>Complete this paper on your own, without help or notes.</li>
+          <li>Choose one answer (A, B, C or D) for each question. You can change an answer until you submit.</li>
+          <li>You have a minimum of 25 minutes. To pass, you need 11 out of 15 (70%).</li>
+        </ul>
+      </div>
+      ${hfPaper.questions.map(q => `<div class="card hfq" data-n="${q.n}">
+        <div class="hfqn">Question ${q.n} of 15</div>
+        <div class="q" style="margin:6px 0 12px">${esc(q.q)}</div>
+        <div class="opts">${q.options.map((o, i) => `<button class="opt" type="button" data-l="${"ABCD"[i]}"><span class="k">${"ABCD"[i]}</span><span>${esc(o)}</span></button>`).join("")}</div>
+      </div>`).join("")}
+      <div class="card hfsubmit">
+        <div id="hfProg" style="font-weight:700"></div><div class="mut" id="hfSaved" style="font-size:13px"></div>
+        <button class="btn big full" id="hfSubmit" type="button" style="margin-top:12px">Submit my paper</button>
+      </div>
+    </div>`;
+    wire();
+    app.querySelectorAll(".hfq .opt").forEach(b => b.onclick = () => {
+      const n = b.closest(".hfq").dataset.n;
+      hfLocal[n] = b.dataset.l; paintPaper(); queueSave();
+    });
+    $("#hfSubmit").onclick = submitPaper;
+  }
+  paintPaper();
+}
+function paintPaper(){
+  const ans = hfAnswersNow();
+  app.querySelectorAll(".hfq").forEach(q => {
+    const a = ans[q.dataset.n];
+    q.classList.toggle("done", !!a);
+    q.querySelectorAll(".opt").forEach(b => b.classList.toggle("sel", b.dataset.l === a));
+  });
+  const n = Object.values(ans).filter(Boolean).length;
+  const p = $("#hfProg"); if (p) p.textContent = `${n} of 15 answered`;
+}
+function queueSave(){
+  const sv = $("#hfSaved"); if (sv) sv.textContent = "Saving…";
+  clearTimeout(hfSaveTimer); hfSaveTimer = setTimeout(savePaper, 400);
+}
+async function savePaper(final = false){
+  const answers = hfAnswersNow();
+  const data = { answers, startedAt: (hfMine && hfMine.startedAt) || Date.now(), updatedAt: Date.now(), submitted: !!final };
+  if (final) data.submittedAt = Date.now();
+  try {
+    await setDoc(doc(db, "sessions", code, "hfAnswers", me), data, { merge: true });
+    const sv = $("#hfSaved"); if (sv) sv.textContent = final ? "" : "Answers saved";
+    return true;
+  } catch(e){
+    console.error(e); const sv = $("#hfSaved"); if (sv) sv.textContent = "Not saved. Check your connection.";
+    toast(sess && sess.status !== "paper" ? "The paper has been closed by your tutor." : "Your answer didn't save. Check your connection.");
+    return false;
+  }
+}
+async function submitPaper(){
+  const n = Object.values(hfAnswersNow()).filter(Boolean).length;
+  const msg = n < 15 ? `You've answered ${n} of 15 questions. Unanswered questions get no mark. You can't change your answers after submitting.`
+                     : "You can't change your answers after submitting.";
+  if (!(await confirmBox("Submit your paper?", msg, "Submit"))) return;
+  clearTimeout(hfSaveTimer);
+  $("#hfSubmit").disabled = true;
+  if (!(await savePaper(true))) $("#hfSubmit").disabled = false;
+}
+
+function leaveSession(){ unsubs.forEach(u => u()); unsubs = []; forget(); code = null; sess = null; myAnswers = {}; retest = null; myPlayer = null; hfPaper = null; hfMine = null; hfLocal = {}; hfOpen = false; endView = "done"; renderJoin(); }
 function wire(){
   const l = $("#leave");
   if (l) l.onclick = leaveSession;
@@ -156,6 +288,8 @@ function render(){
   let html = head();
 
   if (st === "ended"){ renderDone(); return; }
+  if (st === "paper"){ renderPaper(); return; }
+  if (hfOpen) hfOpen = false;   // paper DOM no longer on screen
 
   if (st === "lobby" || st === "wait" || ((st === "question" || st === "reveal") && !sess.q)){
     html += st === "lobby"
@@ -251,19 +385,26 @@ function renderMyResults(){
            : `<div class="ra no">Your answer: ${esc(q[3][a.choice])}</div><div class="ra ok">Correct answer: ${esc(q[3][0])}</div>`}
       <div class="rex">${esc(q[4])}</div></div>`;
   };
+  const hf = !!(myPlayer && myPlayer.track === "highfield");
+  const hfNote = hf ? `<div class="card hfnote"><span class="hfbadge">Highfield qualification</span>
+    <p style="margin:8px 0 0">${hfMine && (hfMine.submitted || Object.keys(hfMine.answers || {}).length)
+      ? "Your Highfield theory paper has gone to your tutor for marking. Your tutor will confirm your result, and Highfield issues your certificate."
+      : "Your tutor will confirm your Highfield result. Highfield issues your certificate."}</p>
+    <p class="mut" style="margin:6px 0 0;font-size:13.5px">The course quiz below is for practice. Your Highfield result comes from the theory paper and your practical assessment.</p></div>` : "";
   app.innerHTML = `
+  ${hfNote}
   <div class="card center">
-    <h2>My results</h2>
+    <h2>${hf ? "Course quiz results" : "My results"}</h2>
     <div class="mut">${esc(name)} · ${esc(sess.title || "EFAW Live Quiz")} · ${esc(fmtDate(when))}</div>
     <div class="bigscore" style="color:${col(r.main.pct)}">${r.main.pct}%</div>
     <div style="font-size:17px;font-weight:600">${r.main.c} of ${r.main.n} questions correct</div>
-    ${r.main.n ? (r.passed
+    ${r.main.n && !hf ? (r.passed
       ? `<div class="result pass">Passed · pass mark ${PASS_MARK}%</div>`
       : `<div class="result fail">Not passed this time · pass mark ${PASS_MARK}%</div>`) : ""}
     ${r.catchup.n ? `<div class="mut" style="font-size:14px">Catch-up questions: ${r.catchup.c} of ${r.catchup.n} correct (not counted towards the pass mark)</div>` : ""}
-    ${r.passed ? `<p style="margin:12px 0 0">Congratulations! Download your certificate below.</p>` : (r.main.n ? `<p class="mut" style="margin:12px 0 0;font-size:14px">Look through the questions below and talk to your trainer about anything you're unsure of.</p>` : "")}
+    ${hf ? "" : r.passed ? `<p style="margin:12px 0 0">Congratulations! Download your certificate below.</p>` : (r.main.n ? `<p class="mut" style="margin:12px 0 0;font-size:14px">Look through the questions below and talk to your trainer about anything you're unsure of.</p>` : "")}
     <div class="actions" style="justify-content:center">
-      ${r.passed && window.jspdf ? `<button class="btn big" id="cert" type="button">Download my certificate</button>` : ""}
+      ${r.passed && !hf && window.jspdf ? `<button class="btn big" id="cert" type="button">Download my certificate</button>` : ""}
       ${r.n && window.jspdf ? `<button class="btn ghost" id="pdf" type="button">Download my results (PDF)</button>` : ""}
     </div>
   </div>
@@ -293,7 +434,7 @@ function renderMyResults(){
   if (p) p.onclick = () => downloadBlob(buildRecordPdf({ name, sessionTitle: sess.title, completedAt: when, answers: list }), pdfFileName(name, when));
   $("#backDone").onclick = () => { endView = "done"; render(); };
   $("#close").onclick = async () => {
-    if (r.passed && !(await confirmBox("Close your results?", "Make sure you've downloaded your certificate first. You won't be able to come back to this page after closing.", "Close"))) return;
+    if (r.passed && !hf && !(await confirmBox("Close your results?", "Make sure you've downloaded your certificate first. You won't be able to come back to this page after closing.", "Close"))) return;
     leaveSession();
   };
 }

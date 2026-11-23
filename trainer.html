@@ -11,6 +11,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 </head>
 <body>
 <header class="top">
@@ -21,6 +22,7 @@
     <button class="hbtn" data-tab="live" type="button">Live session</button>
     <button class="hbtn" data-tab="present" type="button">Presentation</button>
     <button class="hbtn" data-tab="results" type="button">Results</button>
+    <button class="hbtn" data-tab="highfield" type="button">Highfield</button>
     <button class="hbtn" id="out" type="button">Sign out</button>
   </div>
 </header>
@@ -32,11 +34,14 @@ import { configured, auth, db, signInWithEmailAndPassword, onAuthStateChanged, s
 import { $, esc, toast, confirmBox, shuffle, LETTERS, TOPICS, BANK, byId, scoreAnswers, buildRecordPdf, buildCertificatePdf, certFileName, certNumber, PASS_MARK,
          pdfFileName, downloadBlob, qrSvg, joinUrl, setupNotice, fmtDate, isoDate, safeName } from "./common.js";
 import { SLIDES } from "./slides.js";
+import { buildLasPdf, markPaper, fmtUK } from "./highfield.js";
 
 const app = $("#app");
 const ACTIVE = "efaw.live.active";
 let user = null, tab = "live";
-let code = null, sess = null, players = {}, answers = [], retests = {}, unsubs = [];
+let code = null, sess = null, players = {}, answers = [], retests = {}, hfAns = {}, unsubs = [];
+const HFDEF = "efaw.hf.defaults";
+let paperTimer = null;
 let topicSel = "balanced";
 let liveView = "quiz";                               // "quiz" or "slides" during a live session
 let slideIdx = 0, fragShown = 0, showNotes = false, liveMode = false;
@@ -87,6 +92,7 @@ function go(t){
   document.querySelectorAll("#nav [data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
   if (t === "results"){ stopLive(); renderResults(); }
   else if (t === "present"){ stopLive(); renderPresent(); }
+  else if (t === "highfield"){ stopLive(); renderHighfield(); }
   else {
     let saved = null; try { saved = localStorage.getItem(ACTIVE); } catch(e){}
     if (saved) openLive(saved); else renderCreate();
@@ -106,23 +112,61 @@ function renderCreate(){
     <label class="f">Number of questions</label>
     <div class="seg" id="lenSeg">${[15, 30, 45].map(n => `<button type="button" data-n="${n}" class="${n === 30 ? "on" : ""}">${n} questions</button>`).join("")}</div>
     <p class="mut" style="font-size:13px;margin:8px 0 0">Catch-up questions for wrong answers are extra and don't count towards this number.</p>
+    <label class="tog" style="margin-top:18px"><input type="checkbox" id="hfOn"><span><b>Include the Highfield theory paper</b><small>Candidates choose Highfield or DM Learning certificate when they join. Highfield candidates sit a Highfield paper at the end, and you get a completed Learner Answer Sheet for each.</small></span></label>
+    <div id="hfBox" hidden class="hfbox">
+      <div id="hfPaperPick"><span class="mut">Loading papers…</span></div>
+      <div class="hfgrid">
+        <label>Course ID<input type="text" id="hfCourse" placeholder="e.g. CQ1084128"></label>
+        <label>Date of assessment<input type="date" id="hfDate" value="${new Date().toISOString().slice(0, 10)}"></label>
+        <label>Centre name<input type="text" id="hfCentre"></label>
+        <label>Centre number<input type="text" id="hfCentreNo"></label>
+        <label>Tutor name<input type="text" id="hfTutor"></label>
+        <label>Tutor number<input type="text" id="hfTutorNo"></label>
+      </div>
+    </div>
+    <div class="err" id="cerr"></div>
     <div class="actions"><button class="btn big" id="cs" type="button">Create session</button></div></div>`;
+  let hfPapers = [];
+  const defs = (() => { try { return JSON.parse(localStorage.getItem(HFDEF) || "{}"); } catch(e){ return {}; } })();
+  $("#hfCentre").value = defs.centreName || ""; $("#hfCentreNo").value = defs.centreNumber || "";
+  $("#hfTutor").value = defs.tutorName || ""; $("#hfTutorNo").value = defs.tutorNumber || "";
+  $("#hfOn").onchange = async () => {
+    $("#hfBox").hidden = !$("#hfOn").checked;
+    if (!$("#hfOn").checked || hfPapers.length) return;
+    try {
+      const qs = await getDocs(collection(db, "hfPapers")); qs.forEach(d => hfPapers.push(d.data()));
+      hfPapers.sort((a, b) => a.code.localeCompare(b.code));
+      $("#hfPaperPick").innerHTML = hfPapers.length
+        ? `<label class="f" style="margin-top:0">Paper</label><div class="seg" id="hfSeg">${hfPapers.map((p, i) => `<button type="button" data-c="${esc(p.code)}" class="${i === 0 ? "on" : ""}">${esc(p.code)}${p.keyConfirmed ? "" : " (answer key not confirmed)"}</button>`).join("")}</div>`
+        : `<p class="err" style="margin:0">No Highfield papers imported yet. Import them in the <b>Highfield</b> tab first.</p>`;
+      const seg = $("#hfSeg"); if (seg) seg.onclick = e => { const b = e.target.closest("button"); if (!b) return; [...seg.children].forEach(x => x.classList.toggle("on", x === b)); };
+    } catch(e){ console.error(e); $("#hfPaperPick").innerHTML = `<p class="err">Couldn't load the Highfield papers.</p>`; }
+  };
   let total = 30;
   $("#lenSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; total = +b.dataset.n; [...$("#lenSeg").children].forEach(x => x.classList.toggle("on", x === b)); };
   $("#cs").onclick = async () => {
+    let hf = null;
+    if ($("#hfOn").checked){
+      const sel = document.querySelector("#hfSeg .on");
+      if (!sel){ $("#cerr").textContent = "Import the Highfield papers in the Highfield tab first, or untick the Highfield paper."; return; }
+      hf = { enabled: true, paper: sel.dataset.c, courseId: $("#hfCourse").value.trim(), assessDate: $("#hfDate").value,
+             centreName: $("#hfCentre").value.trim(), centreNumber: $("#hfCentreNo").value.trim(), tutorName: $("#hfTutor").value.trim(), tutorNumber: $("#hfTutorNo").value.trim() };
+      if (!hf.courseId || !hf.centreName || !hf.tutorName){ $("#cerr").textContent = "Fill in the Course ID, Centre name and Tutor name for the answer sheets."; return; }
+      try { localStorage.setItem(HFDEF, JSON.stringify({ centreName: hf.centreName, centreNumber: hf.centreNumber, tutorName: hf.tutorName, tutorNumber: hf.tutorNumber })); } catch(e){}
+    }
     $("#cs").disabled = true;
     try {
       let c;
       for (let i = 0; i < 5; i++){ c = makeCode(); if (!(await getDoc(doc(db, "sessions", c))).exists()) break; }
       await setDoc(doc(db, "sessions", c), { code: c, title: $("#st").value.trim() || "EFAW course", createdAt: Date.now(), trainerUid: user.uid,
-                                             status: "lobby", q: null, asked: [], retestRound: 0, endedAt: null, total });
+                                             status: "lobby", q: null, asked: [], retestRound: 0, endedAt: null, total, hf });
       openLive(c);
     } catch(e){ console.error(e); toast("Couldn't create the session. Check your connection."); $("#cs").disabled = false; }
   };
 }
 
 /* ---------- Live session ---------- */
-function stopLive(){ unsubs.forEach(u => u()); unsubs = []; code = null; sess = null; players = {}; answers = []; retests = {}; }
+function stopLive(){ unsubs.forEach(u => u()); unsubs = []; code = null; sess = null; players = {}; answers = []; retests = {}; hfAns = {}; clearInterval(paperTimer); }
 
 function openLive(c){
   stopLive(); code = c;
@@ -135,6 +179,7 @@ function openLive(c){
   unsubs.push(onSnapshot(collection(db, ...base, "players"), qs => { players = {}; qs.forEach(d => players[d.id] = d.data()); renderLive(); }));
   unsubs.push(onSnapshot(collection(db, ...base, "answers"), qs => { answers = []; qs.forEach(d => answers.push(d.data())); renderLive(); }));
   unsubs.push(onSnapshot(collection(db, ...base, "retests"), qs => { retests = {}; qs.forEach(d => retests[d.id] = d.data()); renderLive(); }));
+  unsubs.push(onSnapshot(collection(db, ...base, "hfAnswers"), qs => { hfAns = {}; qs.forEach(d => hfAns[d.id] = d.data()); renderLive(); }));
 }
 
 const sessRef = () => doc(db, "sessions", code);
@@ -173,7 +218,7 @@ function peopleChips(qid){
   return `<div class="people">${ids.map(id => {
     let cls = "";
     if (qid){ const a = answers.find(x => x.uid === id && x.qid === qid); if (a) cls = sess.status === "reveal" ? (a.choice === 0 ? "yes" : "no") : "yes"; }
-    return `<span class="person ${cls}">${esc(players[id].name)}</span>`;
+    return `<span class="person ${cls}">${esc(players[id].name)}${players[id].track === "highfield" ? `<span class="hfpill" title="Highfield qualification">H</span>` : ""}</span>`;
   }).join("")}</div>`;
 }
 
@@ -185,9 +230,27 @@ function renderLive(){
     ? `<span class="mut" style="font-size:16px">All ${sess.total} questions asked.</span><button class="btn big" id="finishQuiz" type="button">Finish quiz</button>`
     : `${topicSelect()}<button class="btn big" id="ask" type="button">${sess.q ? "Next question" : "Ask first question"}</button>`;
 
+  const hfCount = playerIds().filter(id => players[id].track === "highfield").length;
+  const hfBtn = sess.hf && sess.hf.enabled
+    ? (sess.paperStartedAt ? `<span class="mut" style="font-size:14px">Highfield paper finished ✓</span>`
+                           : `<button class="btn big hfbtn" id="startPaper" type="button">Start Highfield paper (${hfCount})</button>`) : "";
   if (st === "lobby" || st === "wait"){
-    stage = `<div class="stage">${joinPanel()}<h3 style="margin-top:24px">${n} joined</h3>${peopleChips(null)}</div>`;
-    controls = askBtn;
+    stage = `<div class="stage">${joinPanel()}<h3 style="margin-top:24px">${n} joined${sess.hf && sess.hf.enabled ? ` · ${hfCount} taking Highfield <span class="hfpill">H</span>` : ""}</h3>${peopleChips(null)}</div>`;
+    controls = askBtn + hfBtn;
+  }
+  else if (st === "paper"){
+    const ids = playerIds().filter(id => players[id].track === "highfield");
+    const sub = ids.filter(id => hfAns[id] && hfAns[id].submitted).length;
+    stage = `<div class="stage">
+      <div class="row" style="justify-content:space-between"><span class="hfbadge">Highfield theory paper · ${esc(sess.hf.paper)}</span><span class="ptimer" id="ptimer"></span></div>
+      <h2 style="margin-top:14px">Theory paper in progress</h2>
+      <p class="lead">Highfield candidates are answering paper ${esc(sess.hf.paper)} on their phones, unaided. Other candidates have been asked to wait quietly. Allow a minimum of 25 minutes.</p>
+      <div class="statusbar"><span class="big-count">${sub}<span style="font-size:24px;color:var(--mut)"> / ${ids.length}</span></span><span class="mut">submitted</span></div>
+      ${ids.length ? `<table style="margin-top:12px"><thead><tr><th>Candidate</th><th class="num">Answered</th><th>Status</th></tr></thead><tbody>${ids.map(id => {
+        const a = hfAns[id], cnt = a ? Object.values(a.answers || {}).filter(Boolean).length : 0;
+        return `<tr><td>${esc(players[id].name)}</td><td class="num">${cnt} / 15</td><td>${a && a.submitted ? `<span class="result pass" style="margin:0;font-size:12px">Submitted</span>` : cnt ? "In progress" : `<span class="mut">Not started</span>`}</td></tr>`; }).join("")}</tbody></table>`
+        : `<p class="mut">No candidates chose the Highfield qualification.</p>`}</div>`;
+    controls = `<button class="btn big" id="endPaper" type="button">End paper</button>`;
   }
   else if (st === "question" || st === "reveal"){
     const qid = sess.q.qid, q = byId[qid], reveal = st === "reveal";
@@ -206,7 +269,7 @@ function renderLive(){
     if (!reveal) controls = `<button class="btn big" id="reveal" type="button">Reveal answer</button>`;
     else {
       const need = needsCatchup(), k = Object.keys(need).length;
-      controls = askBtn + `<button class="btn big ghost" id="catch" type="button" ${k ? "" : "disabled"}>Send catch-up questions${k ? ` (${k})` : ""}</button>`;
+      controls = askBtn + `<button class="btn big ghost" id="catch" type="button" ${k ? "" : "disabled"}>Send catch-up questions${k ? ` (${k})` : ""}</button>` + hfBtn;
     }
   }
   else if (st === "retest"){
@@ -243,7 +306,7 @@ function renderLive(){
   if (liveView === "slides"){
     if (!$("#liveBody .player")) mountPlayer($("#liveBody"), true); else updateLiveButton();
   } else {
-    const toSlides = st === "question" ? "" : `<button class="btn big ghost" id="toSlides" type="button">${st === "lobby" && !sess.q ? "Start presentation" : "Back to slides"}</button>`;
+    const toSlides = st === "question" || st === "paper" ? "" : `<button class="btn big ghost" id="toSlides" type="button">${st === "lobby" && !sess.q ? "Start presentation" : "Back to slides"}</button>`;
     $("#liveBody").innerHTML = `${stage}<div class="controls">${controls}${toSlides}</div>`;
   }
   wireLive();
@@ -254,7 +317,45 @@ function setLiveView(v){
   liveView = v; const b = $("#liveBody"); if (b) b.innerHTML = ""; renderLive();
 }
 
+function paperClock(){
+  clearInterval(paperTimer);
+  const el = () => $("#ptimer");
+  if (!sess || sess.status !== "paper" || !el()) return;
+  const tickF = () => {
+    const t = el(); if (!t || !sess || sess.status !== "paper"){ clearInterval(paperTimer); return; }
+    const secs = Math.max(0, Math.floor((Date.now() - sess.paperStartedAt) / 1000));
+    const mm = String(Math.floor(secs / 60)).padStart(2, "0"), ss = String(secs % 60).padStart(2, "0");
+    t.textContent = `${mm}:${ss} elapsed${secs < 1500 ? " · minimum 25:00" : " · minimum time reached"}`;
+    t.classList.toggle("ok", secs >= 1500);
+  };
+  tickF(); paperTimer = setInterval(tickF, 1000);
+}
+async function startPaper(){
+  const ids = playerIds().filter(id => players[id].track === "highfield");
+  if (!ids.length){ toast("No candidates have chosen the Highfield qualification."); return; }
+  if (!(await confirmBox("Start the Highfield paper?", `${ids.length} candidate${ids.length === 1 ? "" : "s"} will get paper ${sess.hf.paper} on their phone. Make sure they're working unaided. The live quiz pauses while the paper runs.`, "Start paper"))) return;
+  try {
+    const pd = await getDoc(doc(db, "hfPapers", sess.hf.paper));
+    if (!pd.exists()){ toast("That paper isn't in the database. Import it in the Highfield tab."); return; }
+    const p = pd.data();
+    await setDoc(doc(db, "sessions", code, "hf", "paper"), { code: p.code, questions: p.questions });   // questions only, never the answer key
+    await updateDoc(sessRef(), { status: "paper", paperStartedAt: Date.now() });
+  } catch(e){ err(e); }
+}
+async function endPaper(){
+  const ids = playerIds().filter(id => players[id].track === "highfield");
+  const notSub = ids.filter(id => !(hfAns[id] && hfAns[id].submitted)).length;
+  const early = Date.now() - sess.paperStartedAt < 25 * 60 * 1000;
+  const msg = [notSub ? `${notSub} candidate${notSub === 1 ? " hasn't" : "s haven't"} submitted yet. Their saved answers will be marked as they are.` : "Everyone has submitted.",
+               early ? "It's less than the 25-minute minimum." : ""].filter(Boolean).join(" ");
+  if (!(await confirmBox("End the Highfield paper?", msg + " Candidates can't change their answers after this.", "End paper"))) return;
+  updateDoc(sessRef(), { status: "wait", paperEndedAt: Date.now() }).catch(err);
+}
+
 function wireLive(){
+  paperClock();
+  const sp = $("#startPaper"); if (sp) sp.onclick = startPaper;
+  const ep = $("#endPaper"); if (ep) ep.onclick = endPaper;
   document.querySelectorAll(".viewtoggle [data-v]").forEach(b => b.onclick = () => setLiveView(b.dataset.v));
   const tsl = $("#toSlides"); if (tsl) tsl.onclick = () => setLiveView("slides");
   const ts = $("#ts"); if (ts) ts.onchange = () => { topicSel = ts.value; };
@@ -271,6 +372,80 @@ function wireLive(){
   };
 }
 function err(e){ console.error(e); toast("That didn't save. Check your connection."); }
+
+/* ---------- Highfield admin (papers, answer keys, answer-sheet template) ---------- */
+async function renderHighfield(){
+  app.innerHTML = `<div class="card"><h2>Highfield papers</h2><div id="hfwrap"><div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div></div>`;
+  let papers = [], tpl = null;
+  try {
+    const [qs, td] = await Promise.all([getDocs(collection(db, "hfPapers")), getDoc(doc(db, "hfTemplates", "las"))]);
+    qs.forEach(d => papers.push(d.data())); papers.sort((a, b) => a.code.localeCompare(b.code));
+    tpl = td.exists() ? td.data() : null;
+  } catch(e){ console.error(e); $("#hfwrap").innerHTML = `<p class="err">Couldn't load the Highfield material. Check the database rules have been updated (see the setup guide).</p>`; return; }
+  if (tab !== "highfield") return;
+  $("#hfwrap").innerHTML = `
+    <p class="lead">Highfield papers, answer keys and the Learner Answer Sheet are kept in your database, readable only by trainer accounts. They are never part of the website code. Candidates only receive a paper's questions while it's running, and never the answers.</p>
+    <div class="hfimport">
+      <div><b>Import or update the Highfield file</b><div class="mut" style="font-size:13px">Choose <i>highfield-papers.json</i>. Afterwards, keep that file somewhere secure or delete it.</div></div>
+      <label class="btn ghost" style="cursor:pointer">Choose file<input type="file" id="hfFile" accept=".json,application/json" hidden></label>
+    </div>
+    <div class="mut" style="margin:10px 0 4px;font-size:14px">Answer sheet template: ${tpl ? `<b style="color:var(--green-d)">loaded</b> (${esc(tpl.name || "Learner Answer Sheet")})` : `<b style="color:var(--red)">not loaded</b>`}</div>
+    ${papers.length ? papers.map((p, pi) => {
+      const key = (p.key && p.key.length === 15 ? p.key : p.suggestedKey) || [];
+      return `<div class="hfpaper">
+        <div class="row" style="justify-content:space-between">
+          <div><b style="font-size:17px">${esc(p.code)}</b> <span class="result ${p.keyConfirmed ? "pass" : "fail"}" style="margin:0 0 0 8px;font-size:12px">${p.keyConfirmed ? "Answer key confirmed" : "Answer key NOT confirmed"}</span>
+            ${p.keyConfirmed && p.confirmedAt ? `<span class="mut" style="font-size:12px"> · ${esc(fmtDate(p.confirmedAt))}</span>` : ""}</div>
+          <div class="row"><button class="btn ghost" data-test="${pi}" type="button">Test answer sheet</button><button class="btn ghost" data-open="${pi}" type="button">Check answer key</button></div>
+        </div>
+        <div class="hfkey" id="hfk${pi}" hidden>
+          <p class="mut" style="font-size:13.5px;margin:10px 0">Check each answer against <b>Highfield's official marking key for ${esc(p.code)}</b>, correct any that differ, then confirm. ${p.keyConfirmed ? "" : "The answers shown are suggested and haven't been checked yet."}</p>
+          ${p.questions.map((q, i) => `<div class="hfkq"><div><b>${q.n}.</b> ${esc(q.q)}<div class="hfopts">${q.options.map((o, k) => `<span><b>${"ABCD"[k]}.</b> ${esc(o)}</span>`).join("")}</div></div>
+            <select data-k="${i}" aria-label="Answer for question ${q.n}">${"ABCD".split("").map(l => `<option ${key[i] === l ? "selected" : ""}>${l}</option>`).join("")}</select></div>`).join("")}
+          <div class="actions"><button class="btn" data-confirm="${pi}" type="button">Confirm answer key for ${esc(p.code)}</button></div>
+        </div></div>`; }).join("")
+      : `<p class="mut">No papers imported yet.</p>`}`;
+  $("#hfFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (d.format !== "dm-learning-highfield-v1" || !Array.isArray(d.papers)) throw new Error("format");
+      for (const p of d.papers){
+        if (!p.code || !Array.isArray(p.questions) || p.questions.length !== 15) throw new Error("paper " + p.code);
+        const ex = await getDoc(doc(db, "hfPapers", p.code));
+        const same = ex.exists() && JSON.stringify(ex.data().questions) === JSON.stringify(p.questions);
+        await setDoc(doc(db, "hfPapers", p.code), { code: p.code, questions: p.questions, suggestedKey: p.suggestedKey || [],
+          key: same ? (ex.data().key || null) : null, keyConfirmed: same ? !!ex.data().keyConfirmed : false,
+          confirmedAt: same ? (ex.data().confirmedAt || null) : null, importedAt: Date.now() });
+      }
+      if (d.template && d.template.pdfBase64)
+        await setDoc(doc(db, "hfTemplates", "las"), { pdfBase64: d.template.pdfBase64, paperCode: d.template.paperCode || "", name: d.template.name || "Learner Answer Sheet", importedAt: Date.now() });
+      toast(`Imported ${d.papers.length} paper${d.papers.length === 1 ? "" : "s"}`); renderHighfield();
+    } catch(e2){ console.error(e2); toast("That isn't a valid Highfield file."); }
+  };
+  app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { const k = $("#hfk" + b.dataset.open); k.hidden = !k.hidden; });
+  app.querySelectorAll("[data-confirm]").forEach(b => b.onclick = async () => {
+    const pi = +b.dataset.confirm, p = papers[pi];
+    const key = [...$("#hfk" + pi).querySelectorAll("select")].map(x => x.value);
+    if (!(await confirmBox(`Confirm the answer key for ${p.code}?`, `Answers: ${key.join(" ")}. Only confirm once you've checked these against Highfield's official marking key. Answer sheets will be marked with this key.`, "Confirm key"))) return;
+    try { await updateDoc(doc(db, "hfPapers", p.code), { key, keyConfirmed: true, confirmedAt: Date.now(), confirmedBy: user.email || user.uid }); toast("Answer key confirmed"); renderHighfield(); }
+    catch(e){ err(e); }
+  });
+  app.querySelectorAll("[data-test]").forEach(b => b.onclick = async () => {
+    const p = papers[+b.dataset.test];
+    if (!tpl){ toast("Import the Highfield file first (it includes the answer sheet template)."); return; }
+    if (!window.PDFLib){ toast("The PDF library didn't load. Check your connection and reload."); return; }
+    const key = p.key && p.key.length === 15 ? p.key : p.suggestedKey;
+    const answers = {}; key.forEach((k, i) => answers[i + 1] = i === 3 ? (k === "A" ? "B" : "A") : k);
+    const defs = (() => { try { return JSON.parse(localStorage.getItem(HFDEF) || "{}"); } catch(e){ return {}; } })();
+    try {
+      const blob = await buildLasPdf({ templateB64: tpl.pdfBase64, templatePaperCode: tpl.paperCode, paperCode: p.code, passMark: 11, key, answers,
+        fields: { courseId: "TEST", assessDate: fmtUK(new Date().toISOString().slice(0, 10)), centreName: defs.centreName || "TEST CENTRE", centreNumber: defs.centreNumber || "",
+                  tutorName: defs.tutorName || "TEST TUTOR", tutorNumber: defs.tutorNumber || "", learnerName: "TEST LEARNER", dob: "01/01/2000" } });
+      downloadBlob(blob, `TEST LAS - ${p.code}.pdf`);
+    } catch(e){ console.error(e); toast("Couldn't build the test answer sheet."); }
+  });
+}
 
 /* ---------- Presentation player ---------- */
 function renderPresent(){
@@ -340,7 +515,7 @@ function updateLiveButton(){
   if (!liveMode || !sess || sess.status === "ended" || !s){ el.innerHTML = ""; return; }
   if (!s.topic && s.id !== "close-quiz"){ el.innerHTML = ""; return; }
   if (quizDone()){ el.innerHTML = `<span class="mut" style="font-size:14px">All ${sess.total} questions asked</span>`; return; }
-  const busy = sess.status === "question" || sess.status === "retest";
+  const busy = sess.status === "question" || sess.status === "retest" || sess.status === "paper";
   const label = s.topic ? `Ask live question: ${TOPICS[s.topic]}` : "Go to the live quiz";
   el.innerHTML = `<button class="pbtn live" id="pAsk" type="button" ${busy ? "disabled" : ""} title="Shortcut: Q">▶ ${esc(label)}</button>`;
   $("#pAsk").onclick = async () => {
@@ -432,52 +607,83 @@ async function renderResults(){
 }
 
 async function loadSession(c){
-  const [s, ps, as] = await Promise.all([getDoc(doc(db, "sessions", c)), getDocs(collection(db, "sessions", c, "players")), getDocs(collection(db, "sessions", c, "answers"))]);
+  const [s, ps, as, hs] = await Promise.all([getDoc(doc(db, "sessions", c)), getDocs(collection(db, "sessions", c, "players")),
+    getDocs(collection(db, "sessions", c, "answers")), getDocs(collection(db, "sessions", c, "hfAnswers"))]);
   const pl = {}; ps.forEach(d => pl[d.id] = d.data());
   const an = []; as.forEach(d => an.push(d.data()));
-  return { s: s.data(), pl, an };
+  const hf = {}; hs.forEach(d => hf[d.id] = d.data());
+  const sd = s.data();
+  let paper = null, tpl = null;
+  if (sd.hf && sd.hf.enabled){
+    const [pd, td] = await Promise.all([getDoc(doc(db, "hfPapers", sd.hf.paper)), getDoc(doc(db, "hfTemplates", "las"))]);
+    paper = pd.exists() ? pd.data() : null; tpl = td.exists() ? td.data() : null;
+  }
+  return { s: sd, pl, an, hf, paper, tpl };
 }
 
 async function openResult(c){
   app.innerHTML = `<div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
   let data;
   try { data = await loadSession(c); } catch(e){ console.error(e); toast("Couldn't load that session"); renderResults(); return; }
-  const { s, pl, an } = data;
+  const { s, pl, an, hf, paper, tpl } = data;
   const when = s.endedAt || s.createdAt;
-  const rows = Object.entries(pl).map(([uid, p]) => ({ uid, name: p.name, list: an.filter(a => a.uid === uid) }))
-    .map(r => ({ ...r, sc: scoreAnswers(r.list) })).sort((a, b) => a.name.localeCompare(b.name));
+  const hfOn = !!(s.hf && s.hf.enabled);
+  const keyOk = !!(paper && paper.keyConfirmed && Array.isArray(paper.key) && paper.key.length === 15);
+  const rows = Object.entries(pl).map(([uid, p]) => ({ uid, name: p.name, track: p.track || "", dob: p.dob || "", hfa: hf[uid] || null, list: an.filter(a => a.uid === uid) }))
+    .map(r => ({ ...r, sc: scoreAnswers(r.list), hfm: (r.track === "highfield" && keyOk && hf[r.uid]) ? markPaper(hf[r.uid].answers || {}, paper.key) : null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const isHFrow = r => hfOn && r.track === "highfield";
+  const dmRows = rows.filter(r => !isHFrow(r));
+  const hfCell = r => {
+    if (!isHFrow(r)) return hfOn ? `<span class="mut" style="font-size:13px">DM certificate</span>` : "";
+    if (!r.hfa) return `<span class="mut">No paper answers</span>`;
+    if (!keyOk) return `<span class="mut">${Object.values(r.hfa.answers || {}).filter(Boolean).length}/15 answered · key not confirmed</span>`;
+    return `${r.hfm.mark}/15 <span class="result ${r.hfm.mark >= 11 ? "pass" : "fail"}" style="margin:0 0 0 6px;font-size:12px">${r.hfm.mark >= 11 ? "PASS" : "REFER"}</span>${r.hfa.submitted ? "" : ` <span class="mut" style="font-size:12px">(not submitted)</span>`}`;
+  };
   const col = p => p >= 80 ? "var(--green)" : p >= 60 ? "#d08a00" : "var(--red)";
   app.innerHTML = `<div class="card">
     <div class="row" style="justify-content:space-between"><div><button class="link" id="back" type="button">← All sessions</button>
       <h2 style="margin-top:6px">${esc(s.title)}</h2><div class="mut">${esc(fmtDate(s.createdAt))} · code ${esc(s.code)} · ${rows.length} candidates · ${(s.asked || []).length}${s.total ? ` of ${s.total}` : ""} questions asked · ${s.status === "ended" ? "Ended" : "Still live"}</div></div>
       <div class="row"><button class="btn ghost" id="csv" type="button">Export CSV</button><button class="btn" id="zip" type="button" ${rows.length ? "" : "disabled"}>Download all PDFs</button></div></div>
-    <div class="row" style="margin-top:12px;gap:8px"><span class="result pass" style="margin:0">${rows.filter(r => r.sc.passed).length} passed</span><span class="result fail" style="margin:0">${rows.filter(r => !r.sc.passed).length} not passed</span><span class="mut" style="font-size:13px">Pass mark ${PASS_MARK}% of the main questions (catch-ups not counted).</span></div>
-    <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Score</th><th>Result</th><th class="num">Catch-up</th><th></th></tr></thead><tbody>
+    ${hfOn ? `<div class="hfinfo"><span class="hfbadge">Highfield</span> Paper <b>${esc(s.hf.paper)}</b> · Course ID ${esc(s.hf.courseId || "–")} · assessed ${esc(fmtUK(s.hf.assessDate))} · ${rows.filter(isHFrow).length} Highfield candidate${rows.filter(isHFrow).length === 1 ? "" : "s"}
+      ${keyOk ? (rows.filter(isHFrow).length ? ` · <b>${rows.filter(r => r.hfm && r.hfm.mark >= 11).length} pass</b>, ${rows.filter(r => isHFrow(r) && !(r.hfm && r.hfm.mark >= 11)).length} refer` : "")
+              : `<div class="err" style="margin-top:6px">The answer key for ${esc(s.hf.paper)} hasn't been confirmed, so papers can't be marked yet. Confirm it in the <b>Highfield</b> tab.</div>`}
+      ${tpl ? "" : `<div class="err" style="margin-top:6px">The Learner Answer Sheet template isn't loaded. Import the Highfield file in the <b>Highfield</b> tab.</div>`}</div>` : ""}
+    <div class="row" style="margin-top:12px;gap:8px"><span class="result pass" style="margin:0">${dmRows.filter(r => r.sc.passed).length} passed</span><span class="result fail" style="margin:0">${dmRows.filter(r => !r.sc.passed).length} not passed</span><span class="mut" style="font-size:13px">DM Learning certificate: pass mark ${PASS_MARK}% of the main quiz questions (catch-ups not counted).</span></div>
+    <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Quiz score</th><th>Quiz result</th><th class="num">Catch-up</th>${hfOn ? `<th>Highfield paper</th>` : ""}<th></th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr><td><b>${esc(r.name)}</b></td>
       <td class="num">${r.sc.main.c}/${r.sc.main.n} (${r.sc.main.pct}%)<span class="mini"><div style="width:${r.sc.main.pct}%;background:${col(r.sc.main.pct)}"></div></span></td>
-      <td>${r.sc.main.n ? (r.sc.passed ? `<span class="result pass" style="margin:0;font-size:13px">Pass</span>` : `<span class="result fail" style="margin:0;font-size:13px">Not passed</span>`) : `<span class="mut">–</span>`}</td>
+      <td>${isHFrow(r) ? `<span class="mut" style="font-size:13px">Practice</span>` : r.sc.main.n ? (r.sc.passed ? `<span class="result pass" style="margin:0;font-size:13px">Pass</span>` : `<span class="result fail" style="margin:0;font-size:13px">Not passed</span>`) : `<span class="mut">–</span>`}</td>
       <td class="num">${r.sc.catchup.n ? `${r.sc.catchup.c}/${r.sc.catchup.n}` : "–"}</td>
-      <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">Results PDF</button>${r.sc.passed ? ` · <button class="link" data-c="${i}" type="button">Certificate</button>` : ""}</td></tr>
-      <tr id="det${i}" style="display:none"><td colspan="5">${detail(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="mut">No candidates joined.</td></tr>`}
+      ${hfOn ? `<td>${hfCell(r)}</td>` : ""}
+      <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">Results PDF</button>${r.sc.passed && !isHFrow(r) ? ` · <button class="link" data-c="${i}" type="button">Certificate</button>` : ""}${isHFrow(r) && r.hfa ? ` · <button class="link" data-l="${i}" type="button">Answer sheet</button>` : ""}</td></tr>
+      <tr id="det${i}" style="display:none"><td colspan="${hfOn ? 6 : 5}">${detail(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="mut">No candidates joined.</td></tr>`}
     </tbody></table>
     <div class="actions"><button class="btn danger" id="del" type="button">Delete session</button></div></div>`;
   $("#back").onclick = renderResults;
   app.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { const d = $("#det" + b.dataset.v); d.style.display = d.style.display ? "" : "none"; });
   app.querySelectorAll("[data-p]").forEach(b => b.onclick = () => { const r = rows[+b.dataset.p]; downloadBlob(pdfFor(r), pdfFileName(r.name, when)); });
   app.querySelectorAll("[data-c]").forEach(b => b.onclick = () => { const r = rows[+b.dataset.c]; downloadBlob(certFor(r), certFileName(r.name, when)); });
-  $("#csv").onclick = () => downloadBlob(new Blob(["﻿" + csvFor(s, rows)], { type: "text/csv" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.csv`);
+  app.querySelectorAll("[data-l]").forEach(b => b.onclick = async () => {
+    const r = rows[+b.dataset.l];
+    if (!lasReady()) return;
+    try { downloadBlob(await lasFor(r), lasName(r)); } catch(e){ console.error(e); toast("Couldn't build the answer sheet."); }
+  });
+  $("#csv").onclick = () => downloadBlob(new Blob(["\ufeff" + csvFor(s, rows, hfOn ? { keyOk, isHFrow } : null)], { type: "text/csv" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.csv`);
   $("#zip").onclick = async () => {
     if (!window.JSZip){ toast("Zip library didn't load. Use the PDF links instead."); return; }
     const z = new window.JSZip();
     rows.forEach(r => z.file("Results/" + pdfFileName(r.name, when), pdfFor(r)));
-    rows.filter(r => r.sc.passed).forEach(r => z.file("Certificates/" + certFileName(r.name, when), certFor(r)));
+    rows.filter(r => r.sc.passed && !isHFrow(r)).forEach(r => z.file("Certificates/" + certFileName(r.name, when), certFor(r)));
+    if (hfOn && keyOk && tpl){ for (const r of rows.filter(r => isHFrow(r) && r.hfa)) z.file("Highfield answer sheets/" + lasName(r), await lasFor(r)); }
+    else if (hfOn && rows.some(isHFrow)) toast("Highfield answer sheets weren't included: confirm the answer key and import the template first.");
     downloadBlob(await z.generateAsync({ type: "blob" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.zip`);
   };
   $("#del").onclick = async () => {
     if (!(await confirmBox("Delete this session?", `This permanently deletes "${s.title}" and all ${rows.length} candidates' results. It can't be undone. Export anything you need first.`, "Delete permanently"))) return;
     try {
       const base = ["sessions", c];
-      for (const sub of ["answers", "players", "retests"]){
+      for (const sub of ["answers", "players", "retests", "hfAnswers", "hf"]){
         const qs = await getDocs(collection(db, ...base, sub));
         for (const d of qs.docs) await deleteDoc(d.ref);
       }
@@ -487,6 +693,19 @@ async function openResult(c){
     } catch(e){ console.error(e); toast("Couldn't delete everything. Try again."); }
   };
   function pdfFor(r){ return buildRecordPdf({ name: r.name, sessionTitle: s.title, completedAt: when, answers: r.list }); }
+  function lasReady(){
+    if (!keyOk){ toast(`Confirm the answer key for ${s.hf.paper} in the Highfield tab first.`); return false; }
+    if (!tpl){ toast("Import the Highfield file (with the answer sheet template) in the Highfield tab first."); return false; }
+    if (!window.PDFLib){ toast("The PDF library didn't load. Check your connection and reload."); return false; }
+    return true;
+  }
+  function lasName(r){ return `LAS - ${safeName(r.name)} - ${s.hf.paper}.pdf`; }
+  function lasFor(r){
+    return buildLasPdf({ templateB64: tpl.pdfBase64, templatePaperCode: tpl.paperCode, paperCode: s.hf.paper, passMark: 11, key: paper.key,
+      answers: (r.hfa && r.hfa.answers) || {},
+      fields: { courseId: s.hf.courseId, assessDate: fmtUK(s.hf.assessDate), centreName: s.hf.centreName, centreNumber: s.hf.centreNumber,
+                tutorName: s.hf.tutorName, tutorNumber: s.hf.tutorNumber, learnerName: r.name, dob: fmtUK(r.dob) } });
+  }
   function certFor(r){ return buildCertificatePdf({ name: r.name, sessionTitle: s.title, completedAt: when, scorePct: r.sc.main.pct,
     correct: r.sc.main.c, total: r.sc.main.n, certNo: certNumber(s.code, r.uid) }); }
 }
@@ -498,13 +717,22 @@ function detail(r){
       ${a.retest ? `<span class="chip re">catch-up</span>` : ""} ${esc(q[2])}${ok ? "" : `<div class="mut">Answered: ${esc(q[3][a.choice])} · Correct: ${esc(q[3][0])}</div>`}</div>`; }).join("")}</div>`;
 }
 
-function csvFor(s, rows){
+function csvFor(s, rows, hfo){
   const tk = Object.keys(TOPICS);
   const cell = v => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-  const head = ["Candidate", "Session", "Date", "Result", "Score %", "Main correct", "Main answered", "Catch-up correct", "Catch-up answered", "Certificate no.", ...tk.map(t => TOPICS[t])];
-  const lines = rows.map(r => [r.name, s.title, isoDate(s.endedAt || s.createdAt), r.sc.main.n ? (r.sc.passed ? "Pass" : "Not passed") : "", r.sc.main.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
-    r.sc.passed ? certNumber(s.code, r.uid) : "",
-    ...tk.map(t => r.sc.byT[t] ? `${r.sc.byT[t].c}/${r.sc.byT[t].n}` : "")]);
+  const isHF = r => !!(hfo && hfo.isHFrow(r));
+  const hfHead = hfo ? ["Certificate route", "Highfield paper", "Highfield answers (Q1-15)", "Highfield MCQ mark", "Highfield result", "Paper submitted"] : [];
+  const head = ["Candidate", "Session", "Date", ...hfHead, "Quiz result", "Quiz score %", "Main correct", "Main answered", "Catch-up correct", "Catch-up answered", "DM certificate no.", ...tk.map(t => TOPICS[t])];
+  const lines = rows.map(r => {
+    const hfCols = !hfo ? [] : isHF(r)
+      ? ["Highfield", s.hf.paper, Array.from({ length: 15 }, (_, i) => ((r.hfa && r.hfa.answers) || {})[i + 1] || "-").join(" "),
+         r.hfm ? r.hfm.mark : (r.hfa ? "key not confirmed" : ""), r.hfm ? (r.hfm.mark >= 11 ? "PASS" : "REFER") : "", r.hfa && r.hfa.submitted ? "Yes" : (r.hfa ? "No" : "")]
+      : ["DM Learning", "", "", "", "", ""];
+    return [r.name, s.title, isoDate(s.endedAt || s.createdAt), ...hfCols,
+      isHF(r) ? "Practice" : (r.sc.main.n ? (r.sc.passed ? "Pass" : "Not passed") : ""), r.sc.main.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
+      r.sc.passed && !isHF(r) ? certNumber(s.code, r.uid) : "",
+      ...tk.map(t => r.sc.byT[t] ? `${r.sc.byT[t].c}/${r.sc.byT[t].n}` : "")];
+  });
   return [head, ...lines].map(l => l.map(cell).join(",")).join("\r\n");
 }
 </script>

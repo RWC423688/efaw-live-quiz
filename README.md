@@ -17,6 +17,7 @@ A trainer-led live quiz for Emergency First Aid at Work courses.
 | `questions.js` | The question bank (edit here to change questions) |
 | `slides.js`, `slides.css` | The training presentation slides |
 | `firestore.rules` | Database security rules (pasted into Firebase) |
+| `highfield.js` | Fills in the Highfield Learner Answer Sheet (the papers themselves are NOT in this repository) |
 
 ---
 
@@ -90,6 +91,26 @@ The 59-slide EFAW training presentation is built into the trainer page.
 - **Quick questions slides:** each press reveals the next answer. The **▶ Ask live question: <topic>** button (shortcut **Q**) switches to the quiz and sends a question on that section to every phone. After **Reveal answer**, click **Next question** for another on the same topic, or **Back to slides** to carry on where you left off.
 - **Without a session:** the **Presentation** tab shows the same slides on their own.
 - **Demonstration video slides:** the link opens the video in a new tab. Close it to return to the slides.
+
+## Highfield qualification and theory paper
+For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Work (RQF)**, the app can deliver a Highfield theory paper at the end of the course and produce a completed **Learner Answer Sheet (LAS)** for each of them.
+
+**Keep the Highfield material private.** The papers say they must be stored securely. They are **not** in this repository. They come in a separate private file, `highfield-papers.json`, that you import once in the trainer page. It then lives in your Firebase database, readable only by trainer accounts. **Never upload that file to GitHub.** After importing, store it securely or delete it.
+
+**One-off set-up**
+1. Publish the updated `firestore.rules` in Firebase (Firestore Database › Rules › paste › Publish).
+2. In the trainer page, open the **Highfield** tab and click **Choose file**, then pick `highfield-papers.json`.
+3. For each paper, click **Check answer key**, compare every answer with **Highfield's official marking key**, correct any that differ, and click **Confirm answer key**. Answer sheets can't be produced until a paper's key is confirmed.
+4. Use **Test answer sheet** to check the output prints correctly.
+
+**Running it**
+- When creating a session, tick **Include the Highfield theory paper**, choose the paper, and fill in Course ID, Centre name and number, and Tutor name and number. Centre and tutor details are remembered.
+- When candidates join, they choose **Highfield** or **DM Learning certificate**. Highfield candidates also enter their date of birth (for the LAS). They show with an **H** on your screen.
+- After the course questions, click **Start Highfield paper**. Highfield candidates get the 15-question paper on their phone. They can change answers until they submit, and they never see the answers or their mark. Everyone else is asked to wait quietly. Your screen shows a timer (minimum 25 minutes) and who has submitted.
+- Click **End paper** to close it. Saved answers from anyone who hasn't submitted are kept as they are. Then carry on or **End session**.
+- In **Results**, Highfield candidates show their MCQ mark and PASS/REFER (11/15 to pass). **Answer sheet** downloads the completed LAS: header details in capitals, the chosen answer shaded for each question, Pass or Refer ticked per question, MCQ mark, total and PASS/REFER on page 2. **Download all PDFs** includes a *Highfield answer sheets* folder, and the CSV includes each candidate's answers and mark.
+- The learner signature and tutor comments on page 2 are left for you to complete. Print, sign and handle as normal, including any further questioning for referred learners.
+- Highfield candidates still take the course quiz, as practice. They don't get the DM Learning certificate.
 
 ## Certificates (80% pass mark)
 - A candidate **passes** with 80% or more on the main questions (the 15, 30 or 45). Catch-up questions aren't counted.
