@@ -1,10 +1,13 @@
 rules_version = '2';
-// Security rules for the EFAW Live Quiz.
+// Security rules for the EFAW Live Quiz (DM Learning).
 // Paste into Firebase console > Firestore Database > Rules, then Publish.
 //
 // - Trainers: accounts listed in the "trainers" collection (added by hand in the console).
 // - Candidates: anonymous sign-in. They can join a session, answer the CURRENT question once,
 //   answer their own catch-up questions, and read only their own answers.
+// - Highfield: papers, answer keys and the answer-sheet template are trainer-only. A Highfield
+//   candidate can read the running paper's questions (never the key) and save their own answers
+//   only while the paper is open and until they submit.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -18,8 +21,21 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
+    // Highfield material: trainer-only
+    match /hfPapers/{paperId} {
+      allow read, write: if isTrainer();
+    }
+    match /hfTemplates/{tplId} {
+      allow read, write: if isTrainer();
+    }
+
     match /sessions/{code} {
       function sess() { return get(/databases/$(database)/documents/sessions/$(code)).data; }
+      function player(uid) { return get(/databases/$(database)/documents/sessions/$(code)/players/$(uid)).data; }
+      function isHFPlayer(uid) {
+        return exists(/databases/$(database)/documents/sessions/$(code)/players/$(uid))
+          && player(uid).get('track', '') == 'highfield';
+      }
 
       allow get: if signedIn();
       allow list, create, update, delete: if isTrainer();
@@ -28,9 +44,12 @@ service cloud.firestore {
         allow get: if isTrainer() || (signedIn() && request.auth.uid == uid);
         allow list, delete: if isTrainer();
         allow create, update: if signedIn() && request.auth.uid == uid
-          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'lastSeen'])
+          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'lastSeen', 'track', 'dob'])
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
+          && request.resource.data.get('track', 'dm') in ['dm', 'highfield']
+          && request.resource.data.get('dob', '') is string
+          && request.resource.data.get('dob', '').size() <= 10
           && sess().status != 'ended';
       }
 
@@ -57,6 +76,27 @@ service cloud.firestore {
       match /retests/{uid} {
         allow get: if isTrainer() || (signedIn() && request.auth.uid == uid);
         allow list, write: if isTrainer();
+      }
+
+      // The running Highfield paper (questions only, copied in by the trainer when the paper starts)
+      match /hf/{docId} {
+        allow get: if isTrainer()
+          || (signedIn() && sess().status == 'paper' && isHFPlayer(request.auth.uid));
+        allow list, write: if isTrainer();
+      }
+
+      // A Highfield candidate's paper answers
+      match /hfAnswers/{uid} {
+        allow get: if isTrainer() || (signedIn() && request.auth.uid == uid);
+        allow list, delete: if isTrainer();
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && sess().status == 'paper'
+          && isHFPlayer(uid)
+          && (resource == null || resource.data.get('submitted', false) != true)
+          && request.resource.data.keys().hasOnly(['answers', 'startedAt', 'updatedAt', 'submitted', 'submittedAt'])
+          && request.resource.data.answers is map
+          && request.resource.data.answers.size() <= 15
+          && request.resource.data.submitted is bool;
       }
     }
   }
