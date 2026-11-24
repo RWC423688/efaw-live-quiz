@@ -698,9 +698,9 @@ async function openResult(c){
     .map(r => ({ ...r, sc: scoreAnswers(r.list), hfm: (r.track === "highfield" && keyOk && hf[r.uid]) ? markPaper(hf[r.uid].answers || {}, paper.key) : null }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const isHFrow = r => hfOn && r.track === "highfield";
-  const dmRows = rows.filter(r => !isHFrow(r));
+  const dmRows = rows;
   const hfCell = r => {
-    if (!isHFrow(r)) return hfOn ? `<span class="mut" style="font-size:13px">DM certificate</span>` : "";
+    if (!isHFrow(r)) return hfOn ? `<span class="mut" style="font-size:13px">DM certificate only</span>` : "";
     if (!r.hfa) return `<span class="mut">No paper answers</span>`;
     if (!keyOk) return `<span class="mut">${Object.values(r.hfa.answers || {}).filter(Boolean).length}/15 answered · key not confirmed</span>`;
     return `${r.hfm.mark}/15 <span class="result ${r.hfm.mark >= 11 ? "pass" : "fail"}" style="margin:0 0 0 6px;font-size:12px">${r.hfm.mark >= 11 ? "PASS" : "REFER"}</span>${r.hfa.submitted ? "" : ` <span class="mut" style="font-size:12px">(not submitted)</span>`}`;
@@ -718,10 +718,10 @@ async function openResult(c){
     <table style="margin-top:16px"><thead><tr><th>Candidate</th><th class="num">Quiz score</th><th>Quiz result</th><th class="num">Catch-up</th>${hfOn ? `<th>Highfield paper</th>` : ""}<th></th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr><td><b>${esc(r.name)}</b></td>
       <td class="num">${r.sc.main.c}/${r.sc.main.n} (${r.sc.main.pct}%)<span class="mini"><div style="width:${r.sc.main.pct}%;background:${col(r.sc.main.pct)}"></div></span></td>
-      <td>${isHFrow(r) ? `<span class="mut" style="font-size:13px">Practice</span>` : r.sc.main.n ? (r.sc.passed ? `<span class="result pass" style="margin:0;font-size:13px">Pass</span>` : `<span class="result fail" style="margin:0;font-size:13px">Not passed</span>`) : `<span class="mut">–</span>`}</td>
+      <td>${r.sc.main.n ? (r.sc.passed ? `<span class="result pass" style="margin:0;font-size:13px">Pass</span>` : `<span class="result fail" style="margin:0;font-size:13px">Not passed</span>`) : `<span class="mut">–</span>`}</td>
       <td class="num">${r.sc.catchup.n ? `${r.sc.catchup.c}/${r.sc.catchup.n}` : "–"}</td>
       ${hfOn ? `<td>${hfCell(r)}</td>` : ""}
-      <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">Results PDF</button>${r.sc.passed && !isHFrow(r) ? ` · <button class="link" data-c="${i}" type="button">Certificate</button>` : ""}${isHFrow(r) && r.hfa ? ` · <button class="link" data-l="${i}" type="button">Answer sheet</button>` : ""}</td></tr>
+      <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">Results PDF</button>${r.sc.passed ? ` · <button class="link" data-c="${i}" type="button">Certificate</button>` : ""}${isHFrow(r) && r.hfa ? ` · <button class="link" data-l="${i}" type="button">Answer sheet</button>` : ""}</td></tr>
       <tr id="det${i}" style="display:none"><td colspan="${hfOn ? 6 : 5}">${detail(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="mut">No candidates joined.</td></tr>`}
     </tbody></table>
     <div class="actions"><button class="btn danger" id="del" type="button">Delete session</button></div></div>`;
@@ -739,7 +739,7 @@ async function openResult(c){
     if (!window.JSZip){ toast("Zip library didn't load. Use the PDF links instead."); return; }
     const z = new window.JSZip();
     rows.forEach(r => z.file("Results/" + pdfFileName(r.name, when), pdfFor(r)));
-    rows.filter(r => r.sc.passed && !isHFrow(r)).forEach(r => z.file("Certificates/" + certFileName(r.name, when), certFor(r)));
+    rows.filter(r => r.sc.passed).forEach(r => z.file("Certificates/" + certFileName(r.name, when), certFor(r)));
     if (hfOn && keyOk && tpl){ for (const r of rows.filter(r => isHFrow(r) && r.hfa)) z.file("Highfield answer sheets/" + lasName(r), await lasFor(r)); }
     else if (hfOn && rows.some(isHFrow)) toast("Highfield answer sheets weren't included: confirm the answer key and upload the answer sheet PDF first.");
     downloadBlob(await z.generateAsync({ type: "blob" }), `EFAW Results - ${safeName(s.title)} - ${isoDate(when)}.zip`);
@@ -792,10 +792,10 @@ function csvFor(s, rows, hfo){
     const hfCols = !hfo ? [] : isHF(r)
       ? ["Highfield", s.hf.paper, Array.from({ length: 15 }, (_, i) => ((r.hfa && r.hfa.answers) || {})[i + 1] || "-").join(" "),
          r.hfm ? r.hfm.mark : (r.hfa ? "key not confirmed" : ""), r.hfm ? (r.hfm.mark >= 11 ? "PASS" : "REFER") : "", r.hfa && r.hfa.submitted ? "Yes" : (r.hfa ? "No" : "")]
-      : ["DM Learning", "", "", "", "", ""];
+      : ["DM Learning only", "", "", "", "", ""];
     return [r.name, s.title, isoDate(s.endedAt || s.createdAt), ...hfCols,
-      isHF(r) ? "Practice" : (r.sc.main.n ? (r.sc.passed ? "Pass" : "Not passed") : ""), r.sc.main.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
-      r.sc.passed && !isHF(r) ? certNumber(s.code, r.uid) : "",
+      r.sc.main.n ? (r.sc.passed ? "Pass" : "Not passed") : "", r.sc.main.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
+      r.sc.passed ? certNumber(s.code, r.uid) : "",
       ...tk.map(t => r.sc.byT[t] ? `${r.sc.byT[t].c}/${r.sc.byT[t].n}` : "")];
   });
   return [head, ...lines].map(l => l.map(cell).join(",")).join("\r\n");

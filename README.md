@@ -112,7 +112,7 @@ For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Wo
 - Click **End paper** to close it. Saved answers from anyone who hasn't submitted are kept as they are. Then carry on or **End session**.
 - In **Results**, Highfield candidates show their MCQ mark and PASS/REFER (11/15 to pass). **Answer sheet** downloads the completed LAS: header details in capitals, the chosen answer shaded for each question, Pass or Refer ticked per question, MCQ mark, total and PASS/REFER on page 2. **Download all PDFs** includes a *Highfield answer sheets* folder, and the CSV includes each candidate's answers and mark.
 - Learners sign on their phone before they submit the paper (they can't submit without signing). Their signature goes in the Learner Signature box on page 2. Tutor comments are left for you to complete, including any further questioning for referred learners.
-- Highfield candidates still take the course quiz, as practice. They don't get the DM Learning certificate.
+- Highfield candidates also take the course quiz. If they pass it (80%), they get the DM Learning certificate as well, alongside their Highfield paper.
 
 ## Certificates (80% pass mark)
 - A candidate **passes** with 80% or more on the main questions (the 15, 30 or 45). Catch-up questions aren't counted.

@@ -89,7 +89,7 @@ function renderTrackStep(c, n){
     <h2>One more step, ${esc(n.split(" ")[0])}</h2>
     <p class="lead">Which certificate are you working towards on this course?</p>
     <form id="tf">
-      <label class="track"><input type="radio" name="tr" value="highfield"><span><b>Highfield Level 3 Award in Emergency First Aid at Work (RQF)</b><small>The regulated qualification. You'll also sit the Highfield theory paper at the end.</small></span></label>
+      <label class="track"><input type="radio" name="tr" value="highfield"><span><b>Highfield Level 3 Award in Emergency First Aid at Work (RQF)</b><small>The regulated qualification. You'll also sit the Highfield theory paper at the end, and get the DM Learning certificate too if you pass the course quiz.</small></span></label>
       <label class="track"><input type="radio" name="tr" value="dm"><span><b>DM Learning certificate</b><small>DM Learning's own certificate, awarded for 80% or more on the course quiz.</small></span></label>
       <div id="dobWrap" hidden>
         <label class="f" for="dob">Date of birth</label>
@@ -433,7 +433,7 @@ function renderMyResults(){
     <p style="margin:8px 0 0">${hfMine && (hfMine.submitted || Object.keys(hfMine.answers || {}).length)
       ? "Your Highfield theory paper has gone to your tutor for marking. Your tutor will confirm your result, and Highfield issues your certificate."
       : "Your tutor will confirm your Highfield result. Highfield issues your certificate."}</p>
-    <p class="mut" style="margin:6px 0 0;font-size:13.5px">The course quiz below is for practice. Your Highfield result comes from the theory paper and your practical assessment.</p></div>` : "";
+    <p class="mut" style="margin:6px 0 0;font-size:13.5px">Your Highfield result comes from the theory paper and your practical assessment. The course quiz below is separate: pass it (${PASS_MARK}%) and you also get the DM Learning certificate.</p></div>` : "";
   app.innerHTML = `
   ${hfNote}
   <div class="card center">
@@ -441,13 +441,13 @@ function renderMyResults(){
     <div class="mut">${esc(name)} · ${esc(sess.title || "EFAW Live Quiz")} · ${esc(fmtDate(when))}</div>
     <div class="bigscore" style="color:${col(r.main.pct)}">${r.main.pct}%</div>
     <div style="font-size:17px;font-weight:600">${r.main.c} of ${r.main.n} questions correct</div>
-    ${r.main.n && !hf ? (r.passed
+    ${r.main.n ? (r.passed
       ? `<div class="result pass">Passed · pass mark ${PASS_MARK}%</div>`
       : `<div class="result fail">Not passed this time · pass mark ${PASS_MARK}%</div>`) : ""}
     ${r.catchup.n ? `<div class="mut" style="font-size:14px">Catch-up questions: ${r.catchup.c} of ${r.catchup.n} correct (not counted towards the pass mark)</div>` : ""}
-    ${hf ? "" : r.passed ? `<p style="margin:12px 0 0">Congratulations! Download your certificate below.</p>` : (r.main.n ? `<p class="mut" style="margin:12px 0 0;font-size:14px">Look through the questions below and talk to your trainer about anything you're unsure of.</p>` : "")}
+    ${r.passed ? `<p style="margin:12px 0 0">Congratulations! Download your ${hf ? "DM Learning " : ""}certificate below.</p>` : (r.main.n ? `<p class="mut" style="margin:12px 0 0;font-size:14px">Look through the questions below and talk to your trainer about anything you're unsure of.</p>` : "")}
     <div class="actions" style="justify-content:center">
-      ${r.passed && !hf && window.jspdf ? `<button class="btn big" id="cert" type="button">Download my certificate</button>` : ""}
+      ${r.passed && window.jspdf ? `<button class="btn big" id="cert" type="button">Download my ${hf ? "DM Learning " : ""}certificate</button>` : ""}
       ${r.n && window.jspdf ? `<button class="btn ghost" id="pdf" type="button">Download my results (PDF)</button>` : ""}
     </div>
   </div>
@@ -483,7 +483,7 @@ function renderMyResults(){
   if (p) p.onclick = () => downloadBlob(buildRecordPdf({ name, sessionTitle: sess.title, completedAt: when, answers: list }), pdfFileName(name, when));
   $("#backDone").onclick = () => { endView = "done"; render(); };
   $("#close").onclick = async () => {
-    if (r.passed && !hf && !(await confirmBox("Close your results?", "Make sure you've downloaded your certificate first. You won't be able to come back to this page after closing.", "Close"))) return;
+    if (r.passed && !(await confirmBox("Close your results?", "Make sure you've downloaded your certificate first. You won't be able to come back to this page after closing.", "Close"))) return;
     leaveSession();
   };
 }
