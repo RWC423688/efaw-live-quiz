@@ -135,7 +135,7 @@ export const certFileName = (name, ms) => `EFAW Certificate - ${safeName(name)} 
 export const certNumber = (code, uid) => `${String(code || "").toUpperCase()}-${String(uid || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}`;
 
 // A4 landscape certificate of achievement (needs jsPDF loaded as window.jspdf)
-export function buildCertificatePdf({ name, sessionTitle, completedAt, scorePct, correct, total, certNo }){
+export function buildCertificatePdf({ name, sessionTitle, completedAt, scorePct, correct, total, certNo, signaturePngB64 = null }){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
   const W = 297, H = 210, cx = W / 2;
@@ -170,6 +170,13 @@ export function buildCertificatePdf({ name, sessionTitle, completedAt, scorePct,
   doc.setFontSize(9.5); doc.setTextColor(...mut);
   doc.text("Date", 72.5, y + 5, { align: "center" });
   doc.text("Trainer signature", 224.5, y + 5, { align: "center" });
+  if (signaturePngB64){
+    try {
+      const p = doc.getImageProperties("data:image/png;base64," + signaturePngB64);
+      const k = Math.min(60 / p.width, 17 / p.height), w = p.width * k, h = p.height * k;
+      doc.addImage("data:image/png;base64," + signaturePngB64, "PNG", 224.5 - w / 2, y - 1 - h, w, h);
+    } catch(e){ console.error("signature", e); }
+  }
   doc.text(`Certificate no. ${certNo}`, cx, y + 5, { align: "center" });
   if (sessionTitle) doc.text(String(sessionTitle), cx, y - 3, { align: "center", maxWidth: 80 });
   doc.setFontSize(8.5);

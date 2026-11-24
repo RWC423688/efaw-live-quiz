@@ -86,6 +86,12 @@ service cloud.firestore {
       }
 
       // A Highfield candidate's paper answers
+      // Copy of the trainer's signature for this session's certificates. Readable only by people who joined the session.
+      match /meta/{docId} {
+        allow get: if isTrainer() || (signedIn() && exists(/databases/$(database)/documents/sessions/$(code)/players/$(request.auth.uid)));
+        allow list, create, update, delete: if isTrainer();
+      }
+
       match /hfAnswers/{uid} {
         allow get: if isTrainer() || (signedIn() && request.auth.uid == uid);
         allow list, delete: if isTrainer();
@@ -93,7 +99,8 @@ service cloud.firestore {
           && sess().status == 'paper'
           && isHFPlayer(uid)
           && (resource == null || resource.data.get('submitted', false) != true)
-          && request.resource.data.keys().hasOnly(['answers', 'startedAt', 'updatedAt', 'submitted', 'submittedAt'])
+          && request.resource.data.keys().hasOnly(['answers', 'startedAt', 'updatedAt', 'submitted', 'submittedAt', 'signature'])
+          && (!('signature' in request.resource.data) || (request.resource.data.signature is string && request.resource.data.signature.size() < 200000))
           && request.resource.data.answers is map
           && request.resource.data.answers.size() <= 15
           && request.resource.data.submitted is bool;

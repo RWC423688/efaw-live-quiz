@@ -160,6 +160,7 @@ function renderCreate(){
       for (let i = 0; i < 5; i++){ c = makeCode(); if (!(await getDoc(doc(db, "sessions", c))).exists()) break; }
       await setDoc(doc(db, "sessions", c), { code: c, title: $("#st").value.trim() || "EFAW course", createdAt: Date.now(), trainerUid: user.uid,
                                              status: "lobby", q: null, asked: [], retestRound: 0, endedAt: null, total, hf });
+      await copySigToSession(c);
       openLive(c);
     } catch(e){ console.error(e); toast("Couldn't create the session. Check your connection."); $("#cs").disabled = false; }
   };
@@ -379,6 +380,39 @@ async function loadTemplates(){
   qs.forEach(d => { const v = d.data(); if (v && v.pdfBase64) t[v.paperCode || d.id] = v; });
   return t;
 }
+const SIGDOC = () => "signature_" + user.uid;
+async function loadSignature(){
+  try { const d = await getDoc(doc(db, "hfTemplates", SIGDOC())); return d.exists() && d.data().pngBase64 ? d.data() : null; }
+  catch(e){ console.error(e); return null; }
+}
+// Trim, remove a white/paper background and shrink a signature image to a small transparent PNG.
+async function signatureToPng(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const x = c.getContext("2d"); x.drawImage(img, 0, 0);
+    const id = x.getImageData(0, 0, c.width, c.height), d = id.data;
+    let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < c.height; y++) for (let i = 0; i < c.width; i++){
+      const o = (y * c.width + i) * 4, lum = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
+      const a = Math.min(d[o + 3], Math.max(0, Math.min(255, (235 - lum) * 255 / 135)));
+      d[o] = 15; d[o + 1] = 20; d[o + 2] = 45; d[o + 3] = a;
+      if (a > 60){ if (i < x0) x0 = i; if (i > x1) x1 = i; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    if (x1 < 0) throw new Error("blank");
+    x.putImageData(id, 0, 0);
+    const w = x1 - x0 + 1, h = y1 - y0 + 1, sc = Math.min(1, 600 / w), o = document.createElement("canvas");
+    o.width = Math.round(w * sc); o.height = Math.max(1, Math.round(h * sc));
+    o.getContext("2d").drawImage(c, x0, y0, w, h, 0, 0, o.width, o.height);
+    return o.toDataURL("image/png").split(",")[1];
+  } finally { URL.revokeObjectURL(url); }
+}
+// Certificates are built on candidates' phones, so each session gets its own copy of the trainer's signature.
+async function copySigToSession(c, sg){
+  try { sg = sg === undefined ? await loadSignature() : sg; if (sg) await setDoc(doc(db, "sessions", c, "meta", "cert"), { pngBase64: sg.pngBase64, owner: user.email || user.uid, at: Date.now() }); }
+  catch(e){ console.error(e); }
+}
 function pickTemplate(tpls, code){ return tpls[code] || tpls.EFAW22309 || Object.values(tpls)[0] || null; }
 async function pdfToBase64(file){
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -388,9 +422,9 @@ async function pdfToBase64(file){
 }
 async function renderHighfield(){
   app.innerHTML = `<div class="card"><h2>Highfield papers</h2><div id="hfwrap"><div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div></div>`;
-  let papers = [], tpls = {};
+  let papers = [], tpls = {}, sig = null;
   try {
-    const [qs, t] = await Promise.all([getDocs(collection(db, "hfPapers")), loadTemplates()]);
+    const [qs, t, sg] = await Promise.all([getDocs(collection(db, "hfPapers")), loadTemplates(), loadSignature()]); sig = sg;
     qs.forEach(d => papers.push(d.data())); papers.sort((a, b) => a.code.localeCompare(b.code));
     tpls = t;
   } catch(e){ console.error(e); $("#hfwrap").innerHTML = `<p class="err">Couldn't load the Highfield material. Check the database rules have been updated (see the setup guide).</p>`; return; }
@@ -399,6 +433,15 @@ async function renderHighfield(){
     <p class="lead">Highfield papers, answer keys and the Learner Answer Sheet are kept in your database, readable only by trainer accounts. They are never part of the website code. Candidates only receive a paper's questions while it's running, and never the answers.</p>
     <p class="mut" style="font-size:13.5px;margin:0 0 4px">Each paper needs two things before its answer sheets can be produced: a <b>confirmed answer key</b>, and the blank <b>Learner Answer Sheet PDF</b> from Highfield.
       If a paper has no answer sheet of its own, the other paper's sheet is used with the paper code changed.</p>
+    <div class="hfpaper">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div><b style="font-size:17px">Your tutor signature</b>
+          <div class="mut" style="font-size:13px;margin-top:4px">Used on the certificates for sessions you run, and as the <b>Tutor signature</b> on page 2 of the Highfield answer sheets you download.</div></div>
+        <div class="row">${sig ? `<img src="data:image/png;base64,${sig.pngBase64}" alt="Your saved signature" style="height:44px;max-width:200px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : `<b style="color:var(--red)">not uploaded</b>`}
+          <label class="btn ghost" style="cursor:pointer">${sig ? "Replace" : "Upload signature"}<input type="file" id="sigUp" accept="image/png,image/jpeg" hidden></label>
+          ${sig ? `<button class="btn ghost" id="sigDel" type="button">Remove</button>` : ""}</div>
+      </div>
+    </div>
     ${papers.length ? papers.map((p, pi) => {
       const key = (p.key && p.key.length === 15 ? p.key : p.suggestedKey) || [];
       return `<div class="hfpaper">
@@ -428,6 +471,20 @@ async function renderHighfield(){
       toast(`Answer sheet saved for ${p.code}`); renderHighfield();
     } catch(e2){ console.error(e2); toast(e2.message === "pages" ? "That doesn't look like the 2-page Learner Answer Sheet." : "Couldn't read that PDF."); }
   });
+  $("#sigUp").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > 8 * 1024 * 1024){ toast("That image is too large. Use a PNG or JPG under 8 MB."); return; }
+    try {
+      const b64 = await signatureToPng(f);
+      await setDoc(doc(db, "hfTemplates", SIGDOC()), { kind: "signature", pngBase64: b64, name: f.name, owner: user.email || user.uid, uploadedAt: Date.now() });
+      if (code) await copySigToSession(code, { pngBase64: b64 });
+      toast("Signature saved"); renderHighfield();
+    } catch(e2){ console.error(e2); toast(e2.message === "blank" ? "No signature found in that image." : "Couldn't read that image."); }
+  };
+  if ($("#sigDel")) $("#sigDel").onclick = async () => {
+    if (!(await confirmBox("Remove your signature?", "Answer sheets you download afterwards won't have a tutor signature until you upload one again.", "Remove"))) return;
+    try { await deleteDoc(doc(db, "hfTemplates", SIGDOC())); toast("Signature removed"); renderHighfield(); } catch(e){ err(e); }
+  };
   app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { const k = $("#hfk" + b.dataset.open); k.hidden = !k.hidden; });
   app.querySelectorAll("[data-confirm]").forEach(b => b.onclick = async () => {
     const pi = +b.dataset.confirm, p = papers[pi];
@@ -445,7 +502,7 @@ async function renderHighfield(){
     const answers = {}; key.forEach((k, i) => answers[i + 1] = i === 3 ? (k === "A" ? "B" : "A") : k);
     const defs = (() => { try { return JSON.parse(localStorage.getItem(HFDEF) || "{}"); } catch(e){ return {}; } })();
     try {
-      const blob = await buildLasPdf({ templateB64: tpl.pdfBase64, templatePaperCode: tpl.paperCode, paperCode: p.code, passMark: 11, key, answers,
+      const blob = await buildLasPdf({ templateB64: tpl.pdfBase64, templatePaperCode: tpl.paperCode, paperCode: p.code, passMark: 11, key, answers, signaturePngB64: sig && sig.pngBase64,
         fields: { courseId: "TEST", assessDate: fmtUK(new Date().toISOString().slice(0, 10)), centreName: defs.centreName || "TEST CENTRE", centreNumber: defs.centreNumber || "",
                   tutorName: defs.tutorName || "TEST TUTOR", tutorNumber: defs.tutorNumber || "", learnerName: "TEST LEARNER", dob: "01/01/2000" } });
       downloadBlob(blob, `TEST LAS - ${p.code}.pdf`);
@@ -619,19 +676,21 @@ async function loadSession(c){
   const an = []; as.forEach(d => an.push(d.data()));
   const hf = {}; hs.forEach(d => hf[d.id] = d.data());
   const sd = s.data();
-  let paper = null, tpl = null;
+  let paper = null, tpl = null, sig = null;
+  const [ms, own] = await Promise.all([getDoc(doc(db, "sessions", c, "meta", "cert")).catch(() => null), loadSignature()]);
+  const certSig = (ms && ms.exists() && ms.data().pngBase64) || (own && own.pngBase64) || null;
   if (sd.hf && sd.hf.enabled){
-    const [pd, tpls] = await Promise.all([getDoc(doc(db, "hfPapers", sd.hf.paper)), loadTemplates()]);
-    paper = pd.exists() ? pd.data() : null; tpl = pickTemplate(tpls, sd.hf.paper);
+    const [pd, tpls, sg] = await Promise.all([getDoc(doc(db, "hfPapers", sd.hf.paper)), loadTemplates(), loadSignature()]);
+    paper = pd.exists() ? pd.data() : null; tpl = pickTemplate(tpls, sd.hf.paper); sig = sg;
   }
-  return { s: sd, pl, an, hf, paper, tpl };
+  return { s: sd, pl, an, hf, paper, tpl, sig, certSig };
 }
 
 async function openResult(c){
   app.innerHTML = `<div class="wait"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`;
   let data;
   try { data = await loadSession(c); } catch(e){ console.error(e); toast("Couldn't load that session"); renderResults(); return; }
-  const { s, pl, an, hf, paper, tpl } = data;
+  const { s, pl, an, hf, paper, tpl, sig, certSig } = data;
   const when = s.endedAt || s.createdAt;
   const hfOn = !!(s.hf && s.hf.enabled);
   const keyOk = !!(paper && paper.keyConfirmed && Array.isArray(paper.key) && paper.key.length === 15);
@@ -689,7 +748,7 @@ async function openResult(c){
     if (!(await confirmBox("Delete this session?", `This permanently deletes "${s.title}" and all ${rows.length} candidates' results. It can't be undone. Export anything you need first.`, "Delete permanently"))) return;
     try {
       const base = ["sessions", c];
-      for (const sub of ["answers", "players", "retests", "hfAnswers", "hf"]){
+      for (const sub of ["answers", "players", "retests", "hfAnswers", "hf", "meta"]){
         const qs = await getDocs(collection(db, ...base, sub));
         for (const d of qs.docs) await deleteDoc(d.ref);
       }
@@ -707,13 +766,13 @@ async function openResult(c){
   }
   function lasName(r){ return `LAS - ${safeName(r.name)} - ${s.hf.paper}.pdf`; }
   function lasFor(r){
-    return buildLasPdf({ templateB64: tpl.pdfBase64, templatePaperCode: tpl.paperCode, paperCode: s.hf.paper, passMark: 11, key: paper.key,
+    return buildLasPdf({ templateB64: tpl.pdfBase64, templatePaperCode: tpl.paperCode, paperCode: s.hf.paper, passMark: 11, key: paper.key, signaturePngB64: sig && sig.pngBase64, learnerSignaturePngB64: (r.hfa && r.hfa.signature) || null,
       answers: (r.hfa && r.hfa.answers) || {},
       fields: { courseId: s.hf.courseId, assessDate: fmtUK(s.hf.assessDate), centreName: s.hf.centreName, centreNumber: s.hf.centreNumber,
                 tutorName: s.hf.tutorName, tutorNumber: s.hf.tutorNumber, learnerName: r.name, dob: fmtUK(r.dob) } });
   }
   function certFor(r){ return buildCertificatePdf({ name: r.name, sessionTitle: s.title, completedAt: when, scorePct: r.sc.main.pct,
-    correct: r.sc.main.c, total: r.sc.main.n, certNo: certNumber(s.code, r.uid) }); }
+    correct: r.sc.main.c, total: r.sc.main.n, certNo: certNumber(s.code, r.uid), signaturePngB64: certSig }); }
 }
 
 function detail(r){

@@ -102,6 +102,7 @@ For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Wo
 2. In the trainer page, open the **Highfield** tab. For each paper:
    - Click **Check answer key**, compare every answer with **Highfield's official marking key**, correct any that differ, and click **Confirm answer key**. Answer sheets can't be produced until a paper's key is confirmed.
    - Click **Upload answer sheet PDF** and choose the blank Highfield Learner Answer Sheet for that paper. If a paper has no sheet of its own, the other paper's sheet is used with the paper code changed.
+   - Under **Your tutor signature**, click **Upload signature** (PNG or JPG). It's added as a *Tutor signature* in the Tutor Comments area of page 2 on the answer sheets you download. Each trainer account has its own.
 3. Use **Test answer sheet** to check the output prints correctly.
 
 **Running it**
@@ -110,7 +111,7 @@ For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Wo
 - After the course questions, click **Start Highfield paper**. Highfield candidates get the 15-question paper on their phone. They can change answers until they submit, and they never see the answers or their mark. Everyone else is asked to wait quietly. Your screen shows a timer (minimum 25 minutes) and who has submitted.
 - Click **End paper** to close it. Saved answers from anyone who hasn't submitted are kept as they are. Then carry on or **End session**.
 - In **Results**, Highfield candidates show their MCQ mark and PASS/REFER (11/15 to pass). **Answer sheet** downloads the completed LAS: header details in capitals, the chosen answer shaded for each question, Pass or Refer ticked per question, MCQ mark, total and PASS/REFER on page 2. **Download all PDFs** includes a *Highfield answer sheets* folder, and the CSV includes each candidate's answers and mark.
-- The learner signature and tutor comments on page 2 are left for you to complete. Print, sign and handle as normal, including any further questioning for referred learners.
+- Learners sign on their phone before they submit the paper (they can't submit without signing). Their signature goes in the Learner Signature box on page 2. Tutor comments are left for you to complete, including any further questioning for referred learners.
 - Highfield candidates still take the course quiz, as practice. They don't get the DM Learning certificate.
 
 ## Certificates (80% pass mark)
@@ -125,3 +126,6 @@ For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Wo
 - **Not an assessment:** this is a practice and knowledge-check tool. The PDFs say so.
 - **Answers are visible in the page code.** A determined person could find them in the page source. That's fine for a practice quiz, but don't use it as a formal assessment.
 - **Changing questions:** edit `questions.js`. Each entry is `[id, topic, question, [correct, wrong, wrong, wrong], explanation]`, with the correct answer always first. The app shuffles the order. Keep ids unique.
+
+### Editing an answer sheet after download
+Downloaded answer sheets are fillable PDFs. The header details, Tutor Comments, Learner Signature, MCQ mark, further questioning marks, PASS/REFER and total marks can all be changed in any PDF reader (Adobe Reader, Edge, Chrome, Preview). The learner's shaded answers and the per-question Pass/Refer ticks are fixed, because they're the record of what the learner submitted.

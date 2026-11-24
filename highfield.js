@@ -62,7 +62,7 @@ export function markPaper(answers, key){
   return { rows, mark, total: key.length };
 }
 
-export async function buildLasPdf({ templateB64, templatePaperCode, paperCode, passMark = 11, fields, answers, key }){
+export async function buildLasPdf({ templateB64, templatePaperCode, paperCode, passMark = 11, fields, answers, key, signaturePngB64 = null, learnerSignaturePngB64 = null, editable = true }){
   const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
   const bytes = Uint8Array.from(atob(templateB64), c => c.charCodeAt(0));
   const doc = await PDFDocument.load(bytes);
@@ -72,21 +72,42 @@ export async function buildLasPdf({ templateB64, templatePaperCode, paperCode, p
   const pencil = rgb(0.17, 0.17, 0.19);
   const shade = rgb(0.5, 0.5, 0.5);
   const white = rgb(1, 1, 1);
+  const form = doc.getForm();
 
   const MAP = { "Ł":"L", "ł":"l", "Ø":"O", "ø":"o", "Đ":"D", "đ":"d", "Ħ":"H", "ħ":"h", "ı":"i", "Œ":"OE", "œ":"oe", "ß":"ss" };
   const safe = (t, f) => [...String(t)].map(ch => {
-    for (const c of [ch, ch.normalize("NFD").replace(/[\u0300-\u036f]/g, ""), MAP[ch]]){ if (!c) continue; try { f.encodeText(c); return c; } catch(e){} }
+    for (const c of [ch, ch.normalize("NFD").replace(/[̀-ͯ]/g, ""), MAP[ch]]){ if (!c) continue; try { f.encodeText(c); return c; } catch(e){} }
     return "?"; }).join("");
-  const write = (page, text, [x, top, limit], size = 10, f = font) => {
-    if (!text) return;
-    let s = size; const t = safe(String(text), f);
-    while (s > 6 && f.widthOfTextAtSize(t, s) > limit - x) s -= 0.5;
-    page.drawText(t, { x, y: H - top - 9.2, size: s, font: f, color: pencil });
+  const fit = (t, f, size, width) => { let s = size; while (s > 6 && f.widthOfTextAtSize(t, s) > width) s -= 0.5; return s; };
+  // Fillable text box: [x, top, right, bottom] in top-left page coordinates. Value is pre-filled; anyone can edit it in a PDF reader.
+  const field = (page, name, text, [x, top, right, bottom], { size = 10, f = font, multiline = false, align = 0 } = {}) => {
+    const t = text == null ? "" : safe(String(text), f);
+    if (!editable){
+      if (!t) return;
+      const s = fit(t, f, size, right - x - 2);
+      const tx = align === 2 ? right - 2 - f.widthOfTextAtSize(t, s) : align === 1 ? (x + right) / 2 - f.widthOfTextAtSize(t, s) / 2 : x + 2;
+      page.drawText(t, { x: tx, y: H - (top + bottom) / 2 - s * 0.35, size: s, font: f, color: pencil });
+      return;
+    }
+    const tf = form.createTextField(name);
+    if (multiline) tf.enableMultiline();
+    tf.setText(t);
+    tf.setAlignment(align);
+    tf.addToPage(page, { x, y: H - bottom, width: right - x, height: bottom - top, font: f, textColor: pencil, borderWidth: 0 });
+    tf.setFontSize(multiline ? size : fit(t, f, size, right - x - 4));
+    tf.updateAppearances(f);
   };
   const tick = (page, [x0, top, x1, bottom]) => {
     const yb = H - bottom, w = x1 - x0, h = bottom - top;
     page.drawLine({ start: { x: x0 + w * 0.18, y: yb + h * 0.52 }, end: { x: x0 + w * 0.42, y: yb + h * 0.22 }, thickness: 1.6, color: pencil });
     page.drawLine({ start: { x: x0 + w * 0.42, y: yb + h * 0.22 }, end: { x: x0 + w * 0.86, y: yb + h * 0.86 }, thickness: 1.6, color: pencil });
+  };
+  const checkbox = (page, name, on, box) => {
+    if (!editable){ if (on) tick(page, box); return; }
+    const [x0, top, x1, bottom] = box, pad = 3;
+    const cb = form.createCheckBox(name);
+    cb.addToPage(page, { x: x0 + pad, y: H - bottom + pad, width: x1 - x0 - pad * 2, height: bottom - top - pad * 2, textColor: pencil, borderWidth: 0 });
+    if (on) cb.check();
   };
 
   // Paper code: the template carries its own code; if a different paper was sat, show that paper's code instead.
@@ -101,9 +122,9 @@ export async function buildLasPdf({ templateB64, templatePaperCode, paperCode, p
 
   // Page 1 header details (CAPITAL letters, as the form asks)
   const up = v => (v == null ? "" : String(v).toUpperCase());
-  for (const [k, pos] of Object.entries(FIELDS1)) write(p1, up(fields[k]), pos);
+  for (const [k, [x, top, limit]] of Object.entries(FIELDS1)) field(p1, k, up(fields[k]), [x, top - 3.5, limit, top + 15]);
 
-  // Answers: shade the chosen bubble; tick Pass or Refer
+  // Answers: shade the chosen bubble; tick Pass or Refer. These are the learner's submitted answers, so they stay fixed.
   const { rows, mark } = markPaper(answers, key);
   rows.forEach((r, i) => {
     const li = LETTERS.indexOf(r.answer);
@@ -115,13 +136,36 @@ export async function buildLasPdf({ templateB64, templatePaperCode, paperCode, p
   });
 
   // Page 2
-  write(p2, up(fields.learnerName), FIELDS2.learnerName);
-  write(p2, up(fields.courseId), FIELDS2.courseId);
-  const mcq = String(mark), mw = bold.widthOfTextAtSize(mcq, 11);
-  p2.drawText(mcq, { x: (98 + 181.3) / 2 - mw / 2, y: H - 369.6, size: 11, font: bold, color: pencil });
-  tick(p2, mark >= passMark ? [329.5, 390.5, 344.5, 405] : [397.2, 390.5, 412.2, 405]);
-  const tw = bold.widthOfTextAtSize(mcq, 11);
-  p2.drawText(mcq, { x: 536 - tw, y: H - 400.6, size: 11, font: bold, color: pencil });
+  field(p2, "learnerName2", up(fields.learnerName), [FIELDS2.learnerName[0], 79, FIELDS2.learnerName[2], 99]);
+  field(p2, "courseId2", up(fields.courseId), [FIELDS2.courseId[0], 79, FIELDS2.courseId[2], 99]);
+  if (learnerSignaturePngB64){
+    // The learner signed on their device when they submitted the paper.
+    const ls = await doc.embedPng(Uint8Array.from(atob(learnerSignaturePngB64), c => c.charCodeAt(0)));
+    const bw = 166, bh = 21, k = Math.min(bw / ls.width, bh / ls.height), w = ls.width * k, h = ls.height * k;
+    p2.drawImage(ls, { x: 400, y: H - 138.5 + (bh - h) / 2, width: w, height: h });
+  } else field(p2, "learnerSignature", "", [398, 117, 568, 139]);
+
+  let commentsBottom = 257;
+  if (signaturePngB64){
+    // Tutor signature sits in the bottom-right of the Tutor Comments area (the sheet has no separate tutor signature box).
+    const png = await doc.embedPng(Uint8Array.from(atob(signaturePngB64), c => c.charCodeAt(0)));
+    const maxW = 150, maxH = 30, sc = Math.min(maxW / png.width, maxH / png.height);
+    const w = png.width * sc, h = png.height * sc, right = 566, bottom = 257;
+    p2.drawImage(png, { x: right - w, y: H - bottom, width: w, height: h });
+    const label = "Tutor signature:";
+    p2.drawText(label, { x: right - maxW - 6 - bold.widthOfTextAtSize(label, 9), y: H - bottom + 4, size: 9, font: bold, color: rgb(0, 0, 0) });
+    p2.drawLine({ start: { x: right - maxW - 2, y: H - bottom + 1.5 }, end: { x: right, y: H - bottom + 1.5 }, thickness: 0.5, color: rgb(0.6, 0.6, 0.6) });
+    commentsBottom = bottom - maxH - 4;
+  }
+  if (editable) field(p2, "tutorComments", "", [26, 177, 568, commentsBottom], { multiline: true, size: 10 });
+
+  const mcq = String(mark);
+  field(p2, "mcqMark", mcq, [98, 356.3, 181.3, 375.8], { size: 11, f: bold, align: 1 });
+  field(p2, "furtherMarks", "", [466.8, 356.3, 553.3, 375.8], { size: 11, f: bold, align: 1 });
+  const passed = mark >= passMark;
+  checkbox(p2, "summaryPass", passed, [326, 387.8, 347.9, 407.3]);
+  checkbox(p2, "summaryRefer", !passed, [393.7, 387.8, 415.6, 407.3]);
+  field(p2, "totalMarks", mcq, [499.7, 387.8, 538, 407.3], { size: 11, f: bold, align: 2 });
 
   doc.setTitle(`Learner Answer Sheet - ${fields.learnerName || ""} - ${paperCode || ""}`);
   return new Blob([await doc.save()], { type: "application/pdf" });

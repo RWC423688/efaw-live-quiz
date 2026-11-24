@@ -163,3 +163,8 @@ td.num,th.num{text-align:right;white-space:nowrap}
 .hfopts{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;color:var(--mut);font-size:13px;margin-top:4px}
 @media (max-width:760px){.hfgrid,.hfopts{grid-template-columns:1fr}}
 .hfsheet{margin-top:8px;font-size:14px}
+
+.sigpad{position:relative;border:2px dashed #b9c3cf;border-radius:12px;background:#fff}
+.sigpad canvas{display:block;width:100%;height:170px;touch-action:none;cursor:crosshair;border-radius:10px}
+.sighint{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;color:#a0aab6;font-size:15px;pointer-events:none}
+.sigpad::after{content:"";position:absolute;left:16px;right:16px;bottom:34px;border-bottom:1px solid #d5dce4;pointer-events:none}
