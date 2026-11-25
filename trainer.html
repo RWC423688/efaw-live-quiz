@@ -222,7 +222,7 @@ function peopleChips(qid){
   return `<div class="people">${ids.map(id => {
     let cls = "";
     if (qid){ const a = answers.find(x => x.uid === id && x.qid === qid); if (a) cls = sess.status === "reveal" ? (a.choice === 0 ? "yes" : "no") : "yes"; }
-    return `<span class="person ${cls}">${esc(players[id].name)}${players[id].track === "highfield" ? `<span class="hfpill" title="Highfield qualification">H</span>` : ""}</span>`;
+    return `<span class="person ${cls}">${esc(players[id].name)}${players[id].track === "highfield" ? `<span class="hfpill" title="Highfield qualification">H</span>` : ""}${players[id].track === "highfield" && players[id].filmConsent === false ? `<span class="nofilm" title="Didn't consent to filming">No filming</span>` : ""}</span>`;
   }).join("")}</div>`;
 }
 
@@ -239,7 +239,9 @@ function renderLive(){
     ? (sess.paperStartedAt ? `<span class="mut" style="font-size:14px">Highfield paper finished ✓</span>`
                            : `<button class="btn big hfbtn" id="startPaper" type="button">Start Highfield paper (${hfCount})</button>`) : "";
   if (st === "lobby" || st === "wait"){
-    stage = `<div class="stage">${joinPanel()}<h3 style="margin-top:24px">${n} joined${sess.hf && sess.hf.enabled ? ` · ${hfCount} taking Highfield <span class="hfpill">H</span>` : ""}</h3>${peopleChips(null)}</div>`;
+    const noFilm = playerIds().filter(id => players[id].track === "highfield" && players[id].filmConsent === false).map(id => players[id].name);
+    stage = `<div class="stage">${joinPanel()}<h3 style="margin-top:24px">${n} joined${sess.hf && sess.hf.enabled ? ` · ${hfCount} taking Highfield <span class="hfpill">H</span>` : ""}</h3>${peopleChips(null)}
+      ${noFilm.length ? `<p class="err" style="margin-top:10px">Don't film: ${noFilm.map(esc).join(", ")}. They didn't consent to filming, so assess them in person.</p>` : ""}</div>`;
     controls = askBtn + hfBtn;
   }
   else if (st === "paper"){
@@ -710,7 +712,7 @@ async function openResult(c){
   const when = s.endedAt || s.createdAt;
   const hfOn = !!(s.hf && s.hf.enabled);
   const keyOk = !!(paper && paper.keyConfirmed && Array.isArray(paper.key) && paper.key.length === 15);
-  const rows = Object.entries(pl).map(([uid, p]) => ({ uid, name: p.name, track: p.track || "", dob: p.dob || "", hfa: hf[uid] || null, list: an.filter(a => a.uid === uid) }))
+  const rows = Object.entries(pl).map(([uid, p]) => ({ uid, name: p.name, track: p.track || "", dob: p.dob || "", film: p.filmConsent, filmAt: p.consentAt || null, hfa: hf[uid] || null, list: an.filter(a => a.uid === uid) }))
     .map(r => ({ ...r, sc: scoreAnswers(r.list), hfm: (r.track === "highfield" && keyOk && hf[r.uid]) ? markPaper(hf[r.uid].answers || {}, paper.key) : null }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const isHFrow = r => hfOn && r.track === "highfield";
@@ -721,6 +723,7 @@ async function openResult(c){
     if (!keyOk) return `<span class="mut">${Object.values(r.hfa.answers || {}).filter(Boolean).length}/15 answered · key not confirmed</span>`;
     return `${r.hfm.mark}/15 <span class="result ${r.hfm.mark >= 11 ? "pass" : "fail"}" style="margin:0 0 0 6px;font-size:12px">${r.hfm.mark >= 11 ? "PASS" : "REFER"}</span>${r.hfa.submitted ? "" : ` <span class="mut" style="font-size:12px">(not submitted)</span>`}`;
   };
+  const filmTxt = r => r.film === true ? "Consented to filming" : r.film === false ? "Declined filming" : "Filming consent not asked";
   const col = p => p >= 80 ? "var(--green)" : p >= 60 ? "#d08a00" : "var(--red)";
   app.innerHTML = `<div class="card">
     <div class="row" style="justify-content:space-between"><div><button class="link" id="back" type="button">← All sessions</button>
@@ -736,7 +739,7 @@ async function openResult(c){
       <td class="num">${r.sc.main.c}/${r.sc.main.n} (${r.sc.main.pct}%)<span class="mini"><div style="width:${r.sc.main.pct}%;background:${col(r.sc.main.pct)}"></div></span></td>
       <td>${r.sc.main.n ? (r.sc.passed ? `<span class="result pass" style="margin:0;font-size:13px">Pass</span>` : `<span class="result fail" style="margin:0;font-size:13px">Not passed</span>`) : `<span class="mut">–</span>`}</td>
       <td class="num">${r.sc.catchup.n ? `${r.sc.catchup.c}/${r.sc.catchup.n}` : "–"}</td>
-      ${hfOn ? `<td>${hfCell(r)}</td>` : ""}
+      ${hfOn ? `<td>${hfCell(r)}${isHFrow(r) ? `<div style="font-size:12.5px;margin-top:3px;${r.film === false ? "color:var(--red);font-weight:700" : "color:var(--mut)"}">${filmTxt(r)}</div>` : ""}</td>` : ""}
       <td class="num"><button class="link" data-v="${i}" type="button">Details</button> · <button class="link" data-p="${i}" type="button">Results PDF</button>${r.sc.passed ? ` · <button class="link" data-c="${i}" type="button">Certificate</button>` : ""}${isHFrow(r) && r.hfa ? ` · <button class="link" data-l="${i}" type="button">Answer sheet</button>` : ""}</td></tr>
       <tr id="det${i}" style="display:none"><td colspan="${hfOn ? 6 : 5}">${detail(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="mut">No candidates joined.</td></tr>`}
     </tbody></table>
@@ -802,13 +805,14 @@ function csvFor(s, rows, hfo){
   const tk = Object.keys(TOPICS);
   const cell = v => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
   const isHF = r => !!(hfo && hfo.isHFrow(r));
-  const hfHead = hfo ? ["Certificate route", "Highfield paper", "Highfield answers (Q1-15)", "Highfield MCQ mark", "Highfield result", "Paper submitted"] : [];
+  const hfHead = hfo ? ["Certificate route", "Highfield paper", "Highfield answers (Q1-15)", "Highfield MCQ mark", "Highfield result", "Paper submitted", "Filming consent", "Consent given/declined"] : [];
   const head = ["Candidate", "Session", "Date", ...hfHead, "Quiz result", "Quiz score %", "Main correct", "Main answered", "Catch-up correct", "Catch-up answered", "DM certificate no.", ...tk.map(t => TOPICS[t])];
   const lines = rows.map(r => {
     const hfCols = !hfo ? [] : isHF(r)
       ? ["Highfield", s.hf.paper, Array.from({ length: 15 }, (_, i) => ((r.hfa && r.hfa.answers) || {})[i + 1] || "-").join(" "),
-         r.hfm ? r.hfm.mark : (r.hfa ? "key not confirmed" : ""), r.hfm ? (r.hfm.mark >= 11 ? "PASS" : "REFER") : "", r.hfa && r.hfa.submitted ? "Yes" : (r.hfa ? "No" : "")]
-      : ["DM Learning only", "", "", "", "", ""];
+         r.hfm ? r.hfm.mark : (r.hfa ? "key not confirmed" : ""), r.hfm ? (r.hfm.mark >= 11 ? "PASS" : "REFER") : "", r.hfa && r.hfa.submitted ? "Yes" : (r.hfa ? "No" : ""),
+         r.film === true ? "Yes" : r.film === false ? "No" : "Not asked", r.filmAt ? new Date(r.filmAt).toLocaleString("en-GB") : ""]
+      : ["DM Learning only", "", "", "", "", "", "", ""];
     return [r.name, s.title, isoDate(s.endedAt || s.createdAt), ...hfCols,
       r.sc.main.n ? (r.sc.passed ? "Pass" : "Not passed") : "", r.sc.main.pct, r.sc.main.c, r.sc.main.n, r.sc.catchup.c, r.sc.catchup.n,
       r.sc.passed ? certNumber(s.code, r.uid) : "",

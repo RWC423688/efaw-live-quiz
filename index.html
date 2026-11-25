@@ -83,6 +83,8 @@ async function join(c, n, extra){
   start(c, n);
 }
 
+// Version of the filming privacy notice shown above. Change it if the notice wording changes.
+const CONSENT_VER = "film-2026-11-25";
 function renderTrackStep(c, n){
   app.innerHTML = `
   <div class="card">
@@ -95,6 +97,24 @@ function renderTrackStep(c, n){
         <label class="f" for="dob">Date of birth</label>
         <input type="date" id="dob" max="${new Date().toISOString().slice(0, 10)}">
         <p class="mut" style="font-size:12.5px;margin:6px 0 0">Needed for your Highfield answer sheet. Only your trainer can see it.</p>
+        <div class="consent">
+          <h3>Filming your practical assessment</h3>
+          <p>We'd like to video your practical demonstrations (such as CPR, the recovery position, choking and bleeding) as evidence for your Highfield qualification. It's your choice, and saying no won't affect your result.</p>
+          <details>
+            <summary>Privacy notice: how we use your video</summary>
+            <ul>
+              <li><b>Who is responsible:</b> DM Learning is the data controller for your recordings.</li>
+              <li><b>Why we film:</b> only as evidence of your practical assessment, and to check our assessments are fair and accurate (quality assurance).</li>
+              <li><b>Who sees it:</b> your trainer, DM Learning's internal quality assurer, and Highfield Qualifications and its external quality assurers if they check our assessments.</li>
+              <li><b>Lawful basis:</b> your consent.</li>
+              <li><b>How long we keep it:</b> until your certificate has been issued and any external quality assurance check of your course is complete. Then it's deleted.</li>
+              <li><b>Your rights:</b> you can withdraw consent at any time, before or after filming, by emailing <a href="mailto:Danny@DMLearning.co.uk">Danny@DMLearning.co.uk</a>. We'll delete your recordings. You can also ask to see or delete your data, and you can complain to the Information Commissioner's Office at <a href="https://ico.org.uk" target="_blank" rel="noopener">ico.org.uk</a>.</li>
+              <li><b>If you say no:</b> your trainer will assess you in person without filming.</li>
+            </ul>
+          </details>
+          <label class="track"><input type="radio" name="film" value="yes"><span><b>I agree to be filmed</b><small>I've read the privacy notice and consent to DM Learning filming my practical assessment.</small></span></label>
+          <label class="track"><input type="radio" name="film" value="no"><span><b>I don't want to be filmed</b><small>My trainer will assess me in person instead.</small></span></label>
+        </div>
       </div>
       <div class="err" id="te"></div>
       <button class="btn big full" id="tb" type="submit" style="margin-top:10px">Join</button>
@@ -109,8 +129,10 @@ function renderTrackStep(c, n){
     if (!tr){ $("#te").textContent = "Choose which certificate you're working towards."; return; }
     const dob = $("#dob").value;
     if (tr === "highfield" && !/^\d{4}-\d{2}-\d{2}$/.test(dob)){ $("#te").textContent = "Enter your date of birth."; return; }
+    const film = (app.querySelector('input[name="film"]:checked') || {}).value;
+    if (tr === "highfield" && !film){ $("#te").textContent = "Choose whether you agree to be filmed."; return; }
     $("#tb").disabled = true; $("#te").textContent = "";
-    try { await join(c, n, tr === "highfield" ? { track: "highfield", dob } : { track: "dm" }); }
+    try { await join(c, n, tr === "highfield" ? { track: "highfield", dob, filmConsent: film === "yes", consentAt: Date.now(), consentVer: CONSENT_VER } : { track: "dm" }); }
     catch(err){ console.error(err); $("#te").textContent = err.userMsg || "Couldn't join. Check your connection and try again."; $("#tb").disabled = false; }
   };
 }
