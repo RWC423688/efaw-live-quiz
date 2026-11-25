@@ -45,6 +45,9 @@ let paperTimer = null;
 let topicSel = "balanced";
 let liveView = "quiz";                               // "quiz" or "slides" during a live session
 let slideIdx = 0, fragShown = 0, showNotes = false, liveMode = false;
+// Slides marked faw are 3-day First Aid at Work (Unit 2) content: hidden for EFAW unless the trainer shows them.
+let showFaw = (() => { try { return localStorage.getItem("efaw.showFaw") === "1"; } catch(e){ return false; } })();
+const deckSlides = () => SLIDES.filter(s => showFaw || !s.faw);
 
 /* ---------- Auth ---------- */
 if (!configured) app.innerHTML = setupNotice();
@@ -520,18 +523,28 @@ function renderPresent(){
 function mountPlayer(el, live){
   liveMode = live;
   const secs = [];
-  SLIDES.forEach((s, i) => { if (!secs.length || secs[secs.length - 1].sec !== s.sec) secs.push({ sec: s.sec, i }); });
+  deckSlides().forEach((s, i) => { if (!secs.length || secs[secs.length - 1].sec !== s.sec) secs.push({ sec: s.sec, i }); });
   el.innerHTML = `<div class="player">
     <div class="pstage" id="pstage"><div class="deck" id="pdeck"></div><div class="pfs-hint" id="pfsHint" hidden>← → or click to move · Esc to exit</div></div>
     <div class="pbar">
       <button class="pbtn" id="pPrev" type="button">‹ Prev</button><span class="pcount" id="pCount"></span><button class="pbtn primary" id="pNext" type="button">Next ›</button>
       <select id="pJump" aria-label="Jump to section">${secs.map(s => `<option value="${s.i}">${esc(s.sec)}</option>`).join("")}</select>
       <span id="pLive"></span><span style="flex:1"></span>
+      <button class="pbtn" id="pFaw" type="button" title="Unit 2 slides for the 3-day First Aid at Work course">3-day FAW slides: ${showFaw ? "Shown" : "Hidden"}</button>
       <button class="pbtn" id="pNotes" type="button">${showNotes ? "Hide notes" : "Speaker notes"}</button>
       <button class="pbtn" id="pFull" type="button">Full screen</button>
     </div>
     <div class="pnotes" id="pNotesBox" ${showNotes ? "" : "hidden"}></div></div>`;
   $("#pPrev").onclick = prevSlide; $("#pNext").onclick = nextSlide;
+  $("#pFaw").onclick = () => {
+    const cur = deckSlides()[slideIdx];
+    showFaw = !showFaw; try { localStorage.setItem("efaw.showFaw", showFaw ? "1" : "0"); } catch(e){}
+    const list = deckSlides(); let i = cur ? list.indexOf(cur) : -1;
+    if (i < 0 && cur){ const all = SLIDES.indexOf(cur); i = list.findIndex(x => SLIDES.indexOf(x) > all); if (i < 0) i = list.length - 1; }
+    slideIdx = Math.max(0, i);
+    mountPlayer(el, live);
+    toast(showFaw ? "3-day FAW slides shown" : "3-day FAW slides hidden");
+  };
   $("#pJump").onchange = e => goSlide(+e.target.value);
   $("#pNotes").onclick = () => { showNotes = !showNotes; $("#pNotesBox").hidden = !showNotes; $("#pNotes").textContent = showNotes ? "Hide notes" : "Speaker notes"; };
   $("#pFull").onclick = () => { const st = $("#pstage"); (document.fullscreenElement ? document.exitFullscreen() : st.requestFullscreen()).catch(() => toast("Full screen isn't available here")); };
@@ -553,10 +566,13 @@ document.addEventListener("fullscreenchange", () => { fitSlide(); const h = $("#
 
 function showSlide(){
   const d = $("#pdeck"); if (!d) return;
-  slideIdx = Math.max(0, Math.min(SLIDES.length - 1, slideIdx));
-  const s = SLIDES[slideIdx];
-  d.innerHTML = s.html; fragShown = 0; fitSlide();
-  $("#pCount").textContent = `${slideIdx + 1} / ${SLIDES.length}`;
+  const list = deckSlides();
+  slideIdx = Math.max(0, Math.min(list.length - 1, slideIdx));
+  const s = list[slideIdx];
+  d.innerHTML = s.html; fragShown = 0;
+  d.querySelectorAll(".pg").forEach(p => p.textContent = slideIdx + 1);
+  fitSlide();
+  $("#pCount").textContent = `${slideIdx + 1} / ${list.length}`;
   const opts = [...$("#pJump").options]; let sel = opts[0];
   opts.forEach(o => { if (+o.value <= slideIdx) sel = o; }); $("#pJump").value = sel.value;
   $("#pNotesBox").innerHTML = s.notes ? `<b>Speaker notes</b>${esc(s.notes)}` : `<b>Speaker notes</b><span class="mut">None for this slide.</span>`;
@@ -567,14 +583,14 @@ function frags(){ return [...document.querySelectorAll("#pdeck .fragment")]; }
 function nextSlide(){
   const f = frags();
   if (fragShown < f.length){ f[fragShown++].classList.add("visible"); return; }
-  if (slideIdx < SLIDES.length - 1){ slideIdx++; showSlide(); }
+  if (slideIdx < deckSlides().length - 1){ slideIdx++; showSlide(); }
 }
 function prevSlide(){ if (slideIdx > 0){ slideIdx--; showSlide(); } }
 function goSlide(i){ slideIdx = i; showSlide(); }
 
 function updateLiveButton(){
   const el = $("#pLive"); if (!el) return;
-  const s = SLIDES[slideIdx];
+  const s = deckSlides()[slideIdx];
   if (!liveMode || !sess || sess.status === "ended" || !s){ el.innerHTML = ""; return; }
   if (!s.topic && s.id !== "close-quiz"){ el.innerHTML = ""; return; }
   if (quizDone()){ el.innerHTML = `<span class="mut" style="font-size:14px">All ${sess.total} questions asked</span>`; return; }

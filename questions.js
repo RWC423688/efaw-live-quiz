@@ -2,7 +2,7 @@
 // The correct answer is always first here; the app shuffles the order for display.
 export const TOPICS = {
   roles:  "Role & responsibilities",
-  assess: "Assessing an incident (DRABC & AVPU)",
+  assess: "Assessing an incident (DRC ABCDE & AVPU)",
   cbleed: "Catastrophic bleeding",
   recov:  "Unresponsive & breathing",
   cpr:    "CPR & AED",
@@ -30,7 +30,7 @@ export const BANK = [
 ["r12","roles","Between requalifying, what does HSE strongly recommend first aiders do?",["Attend an annual refresher course","Nothing until the certificate expires","Retake the full course every year","Shadow a paramedic"],"HSE strongly recommends a short annual refresher to keep skills up to date."],
 
 // Assessing an incident
-["a1","assess","In the primary survey, what does DR ABC stand for?",["Danger, Response, Airway, Breathing, Circulation","Danger, Recovery, Airway, Bleeding, Cardiac","Doctor, Response, Ambulance, Breathing, CPR","Danger, Rescue, Assess, Bandage, Call"],"DR ABC: Danger, Response, Airway, Breathing, Circulation. It is a quick check for life-threatening problems in a set order."],
+["a1","assess","In the primary survey, what does DRC ABCDE stand for?",["Danger, Response, Catastrophic bleeding, Airway, Breathing, Circulation, Disability, Exposure","Danger, Recovery, Cardiac, Airway, Bleeding, CPR, Defibrillator, Emergency","Doctor, Response, Call, Ambulance, Breathing, Check, Dressing, Exit","Danger, Rescue, Care, Assess, Bandage, Call, Drive, Escort"],"DRC ABCDE: Danger, Response, Catastrophic bleeding, Airway, Breathing, Circulation, Disability, Exposure. It checks for life-threatening problems in a set order."],
 ["a2","assess","You arrive at an incident. What is the first thing you should do?",["Check for danger to yourself, bystanders and the casualty","Check the casualty's breathing","Start chest compressions","Look for the casualty's ID"],"Danger comes first. Don't become a second casualty. Make the area safe before you approach."],
 ["a3","assess","What does AVPU stand for?",["Alert, Voice, Pain, Unresponsive","Airway, Ventilation, Pulse, Unconscious","Awake, Verbal, Pupils, Unstable","Alert, Vision, Position, Uninjured"],"AVPU is a quick scale for level of response: Alert, responds to Voice, responds to Pain, or Unresponsive."],
 ["a4","assess","A casualty's eyes are closed. They don't respond when you speak loudly, but they groan and move when you squeeze their shoulder. Where are they on the AVPU scale?",["P – responds to Pain","A – Alert","V – responds to Voice","U – Unresponsive"],"They respond only to a painful stimulus, so they are at P on the AVPU scale."],
@@ -146,7 +146,13 @@ export const BANK = [
 ["m10","minor","When should a burn be seen by a medical professional?",["If it's larger than the casualty's hand; on the face, hands, feet or genitals; deep; or caused by chemicals or electricity","Only if it blisters after a week","Never, if it's been cooled","Only if the casualty is over 65"],"These burns carry higher risk and need medical assessment. If in doubt, seek advice."],
 ["m11","minor","What is the difference between a burn and a scald?",["A scald is caused by wet heat, such as hot liquids or steam","A scald is caused by fire","A burn is always less serious","There is no difference in cause"],"Scalds come from wet heat. Burns come from dry heat, chemicals, electricity, friction and so on. You treat them in the same way."],
 ["m12","minor","Clothing is stuck to a burn. What should you do?",["Leave it in place and cool the burn over it","Pull it off quickly","Cut it off and peel it from the skin","Soak it in oil"],"Pulling stuck clothing off tears the skin. Leave it for medical staff."],
-["m13","minor","A casualty has a dirty wound from a garden tool. What should you advise?",["Check whether their tetanus protection is up to date and seek medical advice if unsure","No advice is needed","Put soil back on it","Take paracetamol"],"Dirty wounds carry a tetanus risk, so the casualty should check their vaccination status."]
+["m13","minor","A casualty has a dirty wound from a garden tool. What should you advise?",["Check whether their tetanus protection is up to date and seek medical advice if unsure","No advice is needed","Put soil back on it","Take paracetamol"],"Dirty wounds carry a tetanus risk, so the casualty should check their vaccination status."],
+["a13","assess","In DRC ABCDE, what does the C straight after Response stand for?",["Catastrophic bleeding","Circulation","CPR","Casualty history"],"Life-threatening bleeding can kill in minutes, so it is checked and controlled before the airway: Danger, Response, Catastrophic bleeding, then ABCDE."],
+["h12","choke","An adult with severe choking becomes unresponsive. What should you do?",["Support them to the floor, call 999 and start CPR","Keep giving back blows while they lie on their side","Put them in the recovery position and wait","Do blind finger sweeps until the object comes out"],"If a choking casualty becomes unresponsive, lower them to the floor, make sure 999 is called and start CPR. Compressions can help move the object."],
+["m14","minor","How should you position someone with a nosebleed?",["Sitting down, leaning forward","Sitting down with their head tilted back","Lying flat on their back","Standing with their head between their knees"],"Leaning forward lets blood drain from the nose instead of running down the throat, which can cause vomiting."],
+["m15","minor","How long should you pinch the soft part of the nose for a nosebleed before checking?",["10 minutes","1 minute","30 seconds","1 hour"],"Pinch for 10 minutes, then release. If it is still bleeding, pinch for another 10 minutes, up to 2 more times. Over 30 minutes needs hospital."],
+["m16","minor","Something is stuck on the coloured part of a casualty's eye. What should you do?",["Don't try to remove it. Cover the eye and get medical help","Lift it off with tweezers","Ask them to rub their eye","Remove it with a cotton bud"],"Objects stuck to the eye or on the coloured part must be left alone. Cover the eye and get medical help."],
+["m17","minor","A child has pushed a small bead into their ear. What should you do?",["Don't try to remove it, and get medical help","Remove it with tweezers","Push it out with a cotton bud","Pour oil in and shake their head"],"Probing can push the object further in and damage the ear. Get medical help. Only an insect may be floated out with tepid water."]
 ];
 
 

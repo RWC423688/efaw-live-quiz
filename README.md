@@ -85,10 +85,11 @@ You need a free **Firebase** project (Google) to store results, and somewhere to
 - If you reload the trainer page mid-session, it returns to the live session.
 
 ## Presenting the training slides
-The 59-slide EFAW training presentation is built into the trainer page.
+The EFAW training presentation (62 slides, or 70 with the 3-day FAW slides) is built into the trainer page. It follows Highfield's Unit 1 example session plan, modules 1–8.
 - **During a live session:** use the **Slides / Quiz** switch at the top. In the lobby, click **Start presentation**.
 - **Moving through slides:** use **Next / Prev**, the arrow keys, Page Up/Down (most presentation clickers), or click the slide. Press **F** or click **Full screen** for the projector, and **Esc** to exit. The section menu jumps straight to any section. **Speaker notes** shows the notes under the slide (keep it off while projecting, or use a second screen).
 - **Quick questions slides:** each press reveals the next answer. The **▶ Ask live question: <topic>** button (shortcut **Q**) switches to the quiz and sends a question on that section to every phone. After **Reveal answer**, click **Next question** for another on the same topic, or **Back to slides** to carry on where you left off.
+- **3-day FAW slides:** 8 optional slides cover Unit 2 content from Highfield's plan (head-to-toe survey, SAMPLE history, anaphylaxis and auto-injectors, eye injuries, burn severity and types). They're marked "3-day FAW" and hidden by default. Use the **3-day FAW slides: Hidden / Shown** button under the slides to switch. The setting is remembered on that computer.
 - **Without a session:** the **Presentation** tab shows the same slides on their own.
 - **Demonstration video slides:** the link opens the video in a new tab. Close it to return to the slides.
 
