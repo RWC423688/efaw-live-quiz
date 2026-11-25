@@ -498,5 +498,13 @@ export const SLIDES = [
 "html": "<section id=\"close-sources\">\n<p class=\"eyebrow\">Acknowledgements</p>\n<h2>Credits and further guidance</h2>\n<div class=\"cards c3\">\n<div class=\"card\" style=\"--i:0\"><h3>St John Ambulance</h3><p>Guidance and the demonstration videos used in this course. sja.org.uk</p></div>\n<div class=\"card\" style=\"--i:1\"><h3>Resuscitation Council UK</h3><p>CPR, AED, choking and recovery position guidelines. resus.org.uk</p></div>\n<div class=\"card\" style=\"--i:2\"><h3>Health and Safety Executive</h3><p>First aid at work regulations and needs assessments. hse.gov.uk</p></div>\n<div class=\"card\" style=\"--i:3\"><h3>NHS</h3><p>Advice on burns, wounds and when to call 999 or 111. nhs.uk</p></div>\n<div class=\"card\" style=\"--i:4\"><h3>British Red Cross</h3><p>Free first aid advice and app. redcross.org.uk</p></div>\n<div class=\"card\" style=\"--i:5\"><h3>Your course manual</h3><p>Always follow your Highfield course manual and trainer.</p></div>\n</div>\n<div class=\"foot\"><p>EFAW · Acknowledgements</p><p class=\"pg\">70</p></div>\n</section>",
 "notes": "Credit St John Ambulance for the demonstration videos. Thank learners and complete the course paperwork and evaluations.",
 "topic": null
+},
+{
+"id": "close-paper",
+"sec": "Wrap-up",
+"html": "<section id=\"close-paper\" class=\"divider hfonly\">\n<p class=\"eyebrow light\">Highfield qualification</p>\n<h1>Theory paper</h1>\n<p class=\"ddesc\">15 multiple-choice questions on your phone. Work on your own, with no notes or help. Allow at least 25 minutes, then sign and submit.</p>\n</section>",
+"notes": "Only shown in live sessions that include the Highfield paper. When everyone's ready, press Start Highfield paper below the slide. The 25-minute clock starts then, and the screen switches to the paper monitor. Remind candidates: phones on silent, no notes, no talking.",
+"topic": null,
+"hfOnly": true
 }
 ];

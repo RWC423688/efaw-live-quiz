@@ -131,36 +131,30 @@ function renderConsentStep(c, n){
 }
 
 function renderTrackStep(c, n){
+  // Highfield course: every candidate is on the Highfield qualification.
   app.innerHTML = `
   <div class="card">
     <h2>One more step, ${esc(n.split(" ")[0])}</h2>
-    <p class="lead">Which certificate are you working towards on this course?</p>
+    <p class="lead">You're on the <b>Highfield Level 3 Award in Emergency First Aid at Work (RQF)</b>. You'll sit the Highfield theory paper at the end of the course.</p>
     <form id="tf">
-      <label class="track"><input type="radio" name="tr" value="highfield"><span><b>Highfield Level 3 Award in Emergency First Aid at Work (RQF)</b><small>The regulated qualification. You'll also sit the Highfield theory paper at the end, and get the DM Learning certificate too if you pass the course quiz.</small></span></label>
-      <label class="track"><input type="radio" name="tr" value="dm"><span><b>DM Learning certificate</b><small>DM Learning's own certificate, awarded for 80% or more on the course quiz.</small></span></label>
-      <div id="dobWrap" hidden>
-        <label class="f" for="dob">Date of birth</label>
-        <input type="date" id="dob" max="${new Date().toISOString().slice(0, 10)}">
-        <p class="mut" style="font-size:12.5px;margin:6px 0 0">Needed for your Highfield answer sheet. Only your trainer can see it.</p>
-      </div>
+      <label class="f" for="dob">Date of birth</label>
+      <input type="date" id="dob" max="${new Date().toISOString().slice(0, 10)}">
+      <p class="mut" style="font-size:12.5px;margin:6px 0 0">Needed for your Highfield answer sheet. Only your trainer can see it.</p>
       ${consentHtml()}
       <div class="err" id="te"></div>
       <button class="btn big full" id="tb" type="submit" style="margin-top:10px">Join</button>
     </form>
     <div style="margin-top:12px"><button class="link" id="tback" type="button">Back</button></div>
   </div>`;
-  app.querySelectorAll('input[name="tr"]').forEach(r => r.onchange = () => { $("#dobWrap").hidden = r.value !== "highfield" || !r.checked; });
   $("#tback").onclick = () => renderJoin(c, n);
   $("#tf").onsubmit = async e => {
     e.preventDefault();
-    const tr = (app.querySelector('input[name="tr"]:checked') || {}).value;
-    if (!tr){ $("#te").textContent = "Choose which certificate you're working towards."; return; }
     const dob = $("#dob").value;
-    if (tr === "highfield" && !/^\d{4}-\d{2}-\d{2}$/.test(dob)){ $("#te").textContent = "Enter your date of birth."; return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)){ $("#te").textContent = "Enter your date of birth."; return; }
     const film = filmChoice();
     if (!film){ $("#te").textContent = "Choose whether you agree to be filmed."; return; }
     $("#tb").disabled = true; $("#te").textContent = "";
-    try { await join(c, n, tr === "highfield" ? { track: "highfield", dob, ...consentData(film) } : { track: "dm", ...consentData(film) }); }
+    try { await join(c, n, { track: "highfield", dob, ...consentData(film) }); }
     catch(err){ console.error(err); $("#te").textContent = err.userMsg || "Couldn't join. Check your connection and try again."; $("#tb").disabled = false; }
   };
 }

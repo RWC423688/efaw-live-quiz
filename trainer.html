@@ -47,7 +47,9 @@ let liveView = "quiz";                               // "quiz" or "slides" durin
 let slideIdx = 0, fragShown = 0, showNotes = false, liveMode = false;
 // Slides marked faw are 3-day First Aid at Work (Unit 2) content: hidden for EFAW unless the trainer shows them.
 let showFaw = (() => { try { return localStorage.getItem("efaw.showFaw") === "1"; } catch(e){ return false; } })();
-const deckSlides = () => SLIDES.filter(s => showFaw || !s.faw);
+// The Theory paper slide only appears in live sessions that include the Highfield paper.
+const hfLive = () => !!(liveMode && sess && sess.hf && sess.hf.enabled);
+const deckSlides = () => SLIDES.filter(s => (showFaw || !s.faw) && (!s.hfOnly || hfLive()));
 
 /* ---------- Auth ---------- */
 if (!configured) app.innerHTML = setupNotice();
@@ -115,7 +117,10 @@ function renderCreate(){
     <label class="f">Number of questions</label>
     <div class="seg" id="lenSeg">${[15, 30, 45].map(n => `<button type="button" data-n="${n}" class="${n === 30 ? "on" : ""}">${n} questions</button>`).join("")}</div>
     <p class="mut" style="font-size:13px;margin:8px 0 0">Catch-up questions for wrong answers are extra and don't count towards this number.</p>
-    <label class="tog" style="margin-top:18px"><input type="checkbox" id="hfOn"><span><b>Include the Highfield theory paper</b><small>Candidates choose Highfield or DM Learning certificate when they join. Highfield candidates sit a Highfield paper at the end, and you get a completed Learner Answer Sheet for each.</small></span></label>
+    <label class="f">Course type</label>
+    <div class="seg" id="typeSeg"><button type="button" data-t="dm" class="on">DM Learning course</button><button type="button" data-t="highfield">Highfield course</button></div>
+    <p class="mut" style="font-size:13px;margin:8px 0 0" id="typeHelp">Candidates are assessed on the course quiz and get the DM Learning certificate at ${PASS_MARK}% or more.</p>
+    <input type="checkbox" id="hfOn" hidden>
     <div id="hfBox" hidden class="hfbox">
       <div id="hfPaperPick"><span class="mut">Loading papers…</span></div>
       <div class="hfgrid">
@@ -133,6 +138,15 @@ function renderCreate(){
   const defs = (() => { try { return JSON.parse(localStorage.getItem(HFDEF) || "{}"); } catch(e){ return {}; } })();
   $("#hfCentre").value = defs.centreName || ""; $("#hfCentreNo").value = defs.centreNumber || "";
   $("#hfTutor").value = defs.tutorName || ""; $("#hfTutorNo").value = defs.tutorNumber || "";
+  $("#typeSeg").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    [...$("#typeSeg").children].forEach(x => x.classList.toggle("on", x === b));
+    const hfc = b.dataset.t === "highfield";
+    $("#typeHelp").textContent = hfc
+      ? "Every candidate is on the Highfield Level 3 Award in EFAW. They sit a Highfield theory paper at the end of the presentation, and you get a completed Learner Answer Sheet for each. They also get the DM Learning certificate if they pass the course quiz."
+      : `Candidates are assessed on the course quiz and get the DM Learning certificate at ${PASS_MARK}% or more.`;
+    $("#hfOn").checked = hfc; $("#hfOn").onchange();
+  };
   $("#hfOn").onchange = async () => {
     $("#hfBox").hidden = !$("#hfOn").checked;
     if (!$("#hfOn").checked || hfPapers.length) return;
@@ -151,8 +165,8 @@ function renderCreate(){
     let hf = null;
     if ($("#hfOn").checked){
       const sel = document.querySelector("#hfSeg .on");
-      if (!sel){ $("#cerr").textContent = "Import the Highfield papers in the Highfield tab first, or untick the Highfield paper."; return; }
-      hf = { enabled: true, paper: sel.dataset.c, courseId: $("#hfCourse").value.trim(), assessDate: $("#hfDate").value,
+      if (!sel){ $("#cerr").textContent = "Add the Highfield papers in the Highfield tab first, or choose DM Learning course."; return; }
+      hf = { enabled: true, allCandidates: true, paper: sel.dataset.c, courseId: $("#hfCourse").value.trim(), assessDate: $("#hfDate").value,
              centreName: $("#hfCentre").value.trim(), centreNumber: $("#hfCentreNo").value.trim(), tutorName: $("#hfTutor").value.trim(), tutorNumber: $("#hfTutorNo").value.trim() };
       if (!hf.courseId || !hf.centreName || !hf.tutorName){ $("#cerr").textContent = "Fill in the Course ID, Centre name and Tutor name for the answer sheets."; return; }
       try { localStorage.setItem(HFDEF, JSON.stringify({ centreName: hf.centreName, centreNumber: hf.centreNumber, tutorName: hf.tutorName, tutorNumber: hf.tutorNumber })); } catch(e){}
@@ -338,15 +352,17 @@ function paperClock(){
 }
 async function startPaper(){
   const ids = playerIds().filter(id => players[id].track === "highfield");
-  if (!ids.length){ toast("No candidates have chosen the Highfield qualification."); return; }
-  if (!(await confirmBox("Start the Highfield paper?", `${ids.length} candidate${ids.length === 1 ? "" : "s"} will get paper ${sess.hf.paper} on their phone. Make sure they're working unaided. The live quiz pauses while the paper runs.`, "Start paper"))) return;
+  if (!ids.length){ toast("No candidates have chosen the Highfield qualification."); return false; }
+  const left = sess.total ? sess.total - (sess.asked || []).length : 0;
+  if (!(await confirmBox("Start the Highfield paper?", `${ids.length} candidate${ids.length === 1 ? "" : "s"} will get paper ${sess.hf.paper} on their phone, and the 25-minute clock starts now. Make sure they're working unaided.${left > 0 ? ` ${left} quiz question${left === 1 ? " hasn't" : "s haven't"} been asked yet. You can ask ${left === 1 ? "it" : "them"} after the paper.` : ""}`, "Start paper"))) return false;
   try {
     const pd = await getDoc(doc(db, "hfPapers", sess.hf.paper));
-    if (!pd.exists()){ toast("That paper isn't in the database. Import it in the Highfield tab."); return; }
+    if (!pd.exists()){ toast("That paper isn't in the database. Import it in the Highfield tab."); return false; }
     const p = pd.data();
     await setDoc(doc(db, "sessions", code, "hf", "paper"), { code: p.code, questions: p.questions });   // questions only, never the answer key
     await updateDoc(sessRef(), { status: "paper", paperStartedAt: Date.now() });
-  } catch(e){ err(e); }
+    return true;
+  } catch(e){ err(e); return false; }
 }
 async function endPaper(){
   const ids = playerIds().filter(id => players[id].track === "highfield");
@@ -594,6 +610,15 @@ function updateLiveButton(){
   const el = $("#pLive"); if (!el) return;
   const s = deckSlides()[slideIdx];
   if (!liveMode || !sess || sess.status === "ended" || !s){ el.innerHTML = ""; return; }
+  if (s.id === "close-paper"){
+    const hfN = playerIds().filter(id => players[id].track === "highfield").length;
+    if (sess.status === "paper"){ el.innerHTML = `<button class="pbtn live" id="pPaper" type="button">Paper in progress: open the monitor</button>`; $("#pPaper").onclick = () => setLiveView("quiz"); return; }
+    if (sess.paperStartedAt){ el.innerHTML = `<span class="mut" style="font-size:14px">Highfield paper finished ✓</span>`; return; }
+    const busy = sess.status === "question" || sess.status === "retest";
+    el.innerHTML = `<button class="pbtn live" id="pPaper" type="button" ${busy ? "disabled" : ""}>▶ Start Highfield paper (${hfN})</button>`;
+    $("#pPaper").onclick = async () => { if (await startPaper()) setLiveView("quiz"); };
+    return;
+  }
   if (!s.topic && s.id !== "close-quiz"){ el.innerHTML = ""; return; }
   if (quizDone()){ el.innerHTML = `<span class="mut" style="font-size:14px">All ${sess.total} questions asked</span>`; return; }
   const busy = sess.status === "question" || sess.status === "retest" || sess.status === "paper";
