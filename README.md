@@ -117,6 +117,9 @@ For candidates taking the **Highfield Level 3 Award in Emergency First Aid at Wo
 - Learners sign on their phone before they submit the paper (they can't submit without signing). Their signature goes in the Learner Signature box on page 2. Tutor comments are left for you to complete, including any further questioning for referred learners.
 - Highfield candidates also take the course quiz. If they pass it (80%), they get the DM Learning certificate as well, alongside their Highfield paper.
 
+## Instructions tab
+The trainer page has an **Instructions** tab: a step-by-step guide to running a course (set-up, creating a session, joining, presenting, filming, the Highfield paper, finishing, results, IQA and troubleshooting). **Print** prints the whole guide.
+
 ## Certificates (80% pass mark)
 - A candidate **passes** with 80% or more on the main questions (the 15, 30 or 45). Catch-up questions aren't counted.
 - When the trainer ends the session, each candidate sees **Quiz completed**, then taps **Finish and see my results**. This opens their results page: score, pass or not, score by topic, and every question with their answer, the correct answer and the explanation (filter by All / Incorrect / Correct). Passers can download a **Certificate of Achievement** (A4 landscape PDF) with their name, score, date, session and a certificate number.
